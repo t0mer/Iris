@@ -1,5 +1,6 @@
 import {
   Activity,
+  FlaskConical,
   BellRing,
   LayoutDashboard,
   ListChecks,
@@ -40,6 +41,7 @@ export const NAV: NavItem[] = [
   { to: '/chats', label: 'Chats', icon: Users, group: 'watch' },
   { to: '/instances', label: 'Phones', icon: Smartphone, group: 'manage' },
   { to: '/jobs', label: 'Jobs', icon: Activity, group: 'manage', badge: (s) => s.failed_jobs },
+  { to: '/try', label: 'Try it', icon: FlaskConical, group: 'manage' },
   { to: '/settings', label: 'Settings', icon: Settings, group: 'manage' },
 ]
 
