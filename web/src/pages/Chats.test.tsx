@@ -24,7 +24,7 @@ test('never shows a raw group or chat id: unnamed ones get a plain label', async
     '/api/chats': [chat({}), chat({ id: 2, wa_chat_id: '222222222222222@lid', is_group: false })],
   })
   expect(await screen.findByText('Unnamed group')).toBeInTheDocument()
-  expect(screen.getByText('Direct chat')).toBeInTheDocument()
+  expect(screen.getByText('Direct chat', { selector: '.truncate' })).toBeInTheDocument()
   expect(document.body).not.toHaveTextContent('@g.us')
   expect(document.body).not.toHaveTextContent('@lid')
 })
