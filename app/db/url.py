@@ -91,9 +91,12 @@ class DbConfig:
 
     def connect_args(self) -> dict[str, Any]:
         """TLS with the system trust store (a private CA belongs in the system store)."""
-        if self.kind == "sqlite" or not self.tls:
+        if self.kind == "sqlite":
             return {}
-        return {"ssl": ssl.create_default_context()}
+        args: dict[str, Any] = {"timeout" if self.kind == "postgresql" else "connect_timeout": 10}
+        if self.tls:
+            args["ssl"] = ssl.create_default_context()
+        return args
 
 
 def parse_url(raw: str) -> DbConfig:
