@@ -272,3 +272,22 @@ async def test_a_second_check_waits_while_the_first_is_running(app_client: Any) 
     with pytest.raises(TransientError):
         await process_message(first, deps)
     await deps.providers.aclose()
+
+
+async def test_api_exposes_flags_and_history_but_not_for_redacted(app_client: Any) -> None:
+    _, token = await make_instance(app_client)
+    await post(app_client, token, fx(SENT))
+    await post(app_client, token, fx("message_edited"))
+    await post(app_client, token, revoke_of(SENT))
+    mid = (await _message(app_client)).id
+    d = (await app_client.get(f"/api/messages/{mid}")).json()
+    assert d["edited_at"] and d["revoked_at"]
+    assert [r["text"] for r in d["revisions"]] == [OLD_TEXT]
+    listed = (await app_client.get("/api/messages")).json()["items"][0]
+    assert listed["edited_at"] and listed["revoked_at"] and "revisions" not in listed
+
+    async with app_client.app.state.session_factory() as s:
+        (await s.get(Message, mid)).redacted = True  # type: ignore[union-attr]
+        await s.commit()
+    d = (await app_client.get(f"/api/messages/{mid}")).json()
+    assert d["revisions"] == [] and d["text"] is None
