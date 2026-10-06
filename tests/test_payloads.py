@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from app.openwa.payloads import PayloadError, message_hash, parse_event
+from app.openwa.payloads import PayloadError, message_hash, parse_change, parse_event
 
 FIX = Path(__file__).parent / "fixtures" / "openwa"
 NAMES = [p.stem for p in sorted(FIX.glob("*.json"))]
@@ -95,3 +95,28 @@ def test_status_broadcast_skipped() -> None:
     body = load("text_received_mixed")
     body["data"]["isStatusBroadcast"] = True
     assert parse_event(body) is None
+
+
+def test_edit_carries_the_new_text_and_the_hash_of_the_original() -> None:
+    raw = load("message_edited")
+    c = parse_change(raw)
+    assert c and c.kind == "edited" and c.new_text
+    assert c.wa_message_id == message_hash(raw["data"]["messageId"])
+
+
+def test_revoke_points_at_the_original_not_the_revoke_stub() -> None:
+    raw = load("message_revoked")
+    c = parse_change(raw)
+    assert c and c.kind == "revoked" and c.new_text is None
+    assert c.wa_message_id == message_hash(raw["data"]["revokedId"])
+    assert c.wa_message_id != message_hash(raw["data"]["id"])
+
+
+@pytest.mark.parametrize("name", ["text_sent_he", "message_reaction"])
+def test_other_events_are_not_changes(name: str) -> None:
+    assert parse_change(load(name)) is None
+
+
+def test_change_without_an_id_is_rejected() -> None:
+    with pytest.raises(PayloadError):
+        parse_change({"event": "message.revoked", "data": {"id": "true_x_y"}})

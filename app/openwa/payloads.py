@@ -2,7 +2,9 @@
 
 All OpenWA-specific shapes live here (built from real captures in tests/fixtures/openwa/).
 Findings that drive the design:
-- Only `message.received` and `message.sent` carry new messages; other events are ignored.
+- Only `message.received` and `message.sent` carry new messages. `message.edited` (new text under
+  `messageId`) and `message.revoked` (original id under `revokedId`) change a stored message; other
+  events are ignored.
 - `id` is `<true|false>_<chat>_<hash>[_<author>]`. The hash is identical for the sender and
   receiver, the chat part differs per viewpoint in direct chats (each side sees the other's LID).
 - Media is usually `omitted` (only mimetype and size); small files may be inlined as base64.
@@ -14,6 +16,7 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 MESSAGE_EVENTS = {"message.received", "message.sent"}
+CHANGE_EVENTS = {"message.edited", "message.revoked"}
 MessageType = Literal["text", "image", "audio", "voice", "video", "sticker", "document", "other"]
 _KNOWN_TYPES = {"text", "image", "audio", "voice", "video", "sticker", "document"}
 
@@ -27,6 +30,14 @@ class MediaRef(BaseModel):
     filename: str | None = None
     size_bytes: int | None = None
     inline_base64: str | None = None
+
+
+class MessageChange(BaseModel):
+    """An edit or a delete-for-everyone of a message Iris may already hold."""
+
+    kind: Literal["edited", "revoked"]
+    wa_message_id: str  # the hash, which matches Message.wa_message_id
+    new_text: str | None = None  # edits only: the text after the edit
 
 
 class IncomingMessage(BaseModel):
@@ -107,4 +118,26 @@ def parse_event(body: dict[str, Any]) -> IncomingMessage | None:
         if isinstance(quoted, dict) and quoted.get("id")
         else None,
         sent_at=datetime.fromtimestamp(ts, tz=UTC),
+    )
+
+
+def parse_change(body: dict[str, Any]) -> MessageChange | None:
+    """Return the change for `message.edited` / `message.revoked`, or None for any other event."""
+    event = body.get("event")
+    if event not in CHANGE_EVENTS:
+        return None
+    data = body.get("data")
+    if not isinstance(data, dict):
+        raise PayloadError("message event without data")
+    key = "messageId" if event == "message.edited" else "revokedId"
+    wa_id = data.get(key)
+    if not isinstance(wa_id, str):
+        raise PayloadError(f"missing field: {key}")
+    if event == "message.revoked":
+        return MessageChange(kind="revoked", wa_message_id=message_hash(wa_id))
+    text = data.get("body")
+    return MessageChange(
+        kind="edited",
+        wa_message_id=message_hash(wa_id),
+        new_text=text if isinstance(text, str) and text else None,
     )
