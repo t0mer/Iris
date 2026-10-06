@@ -58,7 +58,7 @@ async def test_transient_failure_backoff_schedule_and_dead_letter(
         assert job and job.attempts == n
         assert await queue.fail(factory, job, "boom", transient=True) == "queued"
         j = await _status(factory, jid)
-        delay = (j.run_after - datetime.now(UTC).replace(tzinfo=None)).total_seconds()
+        delay = (j.run_after - datetime.now(UTC)).total_seconds()
         assert secs - 2 < delay <= secs
         assert await queue.claim(factory) is None  # not eligible until run_after
     async with factory() as db:

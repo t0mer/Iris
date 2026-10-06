@@ -141,8 +141,7 @@ async def test_rate_limit_requeues_with_retry_after(app_client: Any) -> None:
     m, j = await message_and_job(app_client)
     assert j.status == "queued" and j.attempts == 1 and m.status == "processing"
     delay = (
-        j.run_after
-        - __import__("datetime").datetime.now(__import__("datetime").UTC).replace(tzinfo=None)
+        j.run_after - __import__("datetime").datetime.now(__import__("datetime").UTC)
     ).total_seconds()
     assert 100 < delay <= 120
     await deps.providers.aclose()

@@ -116,7 +116,9 @@ async def test_old_alerts_and_old_done_jobs_are_deleted(app_client: Any) -> None
     assert await count(app_client, Alert) == 1
     async with app_client.app.state.session_factory() as s:
         jobs = (await s.execute(select(Job.created_at))).scalars().all()
-        assert all(j >= datetime(2026, 9, 29) for j in jobs)  # nothing older than 7 days remains
+        assert all(
+            j >= datetime(2026, 9, 29, tzinfo=UTC) for j in jobs
+        )  # nothing older than 7 days remains
 
 
 async def test_retention_windows_come_from_settings(app_client: Any) -> None:

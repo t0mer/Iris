@@ -97,3 +97,36 @@ async def test_message_change_migration_round_trips(tmp_path: Path) -> None:
         tables = {r[0] for r in await c.execute(text("select name from sqlite_master"))}
         cols = {r[1] for r in await c.execute(text("pragma table_info(messages)"))}
     assert "message_revisions" in tables and {"edited_at", "revoked_at"} <= cols
+
+
+def _ddl(url: str) -> str:
+    import io
+
+    from alembic import command
+    from alembic.config import Config
+
+    out = io.StringIO()
+    cfg = Config("alembic.ini", output_buffer=out)
+    cfg.attributes["url"] = url
+    command.upgrade(cfg, "head", sql=True)
+    return out.getvalue()
+
+
+def test_postgresql_schema_renders_without_sqlite_features() -> None:
+    ddl = _ddl("postgresql+asyncpg://u:p@h/db")
+    assert "CREATE TABLE messages" in ddl and "CREATE TABLE message_revisions" in ddl
+    assert "fts5" not in ddl.lower() and "TRIGGER" not in ddl
+    assert "TIMESTAMP WITHOUT TIME ZONE" in ddl and "WITH TIME ZONE" not in ddl
+    assert "VARCHAR(255)" in ddl and "JSON" in ddl
+
+
+def test_mysql_schema_renders_with_lengths_and_microseconds() -> None:
+    ddl = _ddl("mysql+aiomysql://u:p@h/db")
+    assert "CREATE TABLE messages" in ddl and "fts5" not in ddl.lower()
+    assert "DATETIME(6)" in ddl and "VARCHAR(255)" in ddl
+    assert "VARCHAR NOT NULL" not in ddl  # MySQL rejects a VARCHAR without a length
+
+
+def test_sqlite_schema_still_has_full_text_search() -> None:
+    ddl = _ddl("sqlite+aiosqlite:///x.db")
+    assert "fts5" in ddl.lower() and "messages_au" in ddl
