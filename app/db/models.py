@@ -85,6 +85,21 @@ class Message(Base):
     # How to fetch the media from OpenWA: {instance_id, chat_id, message_ref, mimetype, ...}.
     # Kept on the message (not only the job) so reprocessing media messages keeps working.
     media: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    # Set when OpenWA reports an edit / a delete-for-everyone (received time, not WhatsApp's).
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class MessageRevision(Base):
+    """The text an edit replaced. The oldest row is the original wording."""
+
+    __tablename__ = "message_revisions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    message_id: Mapped[int] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), index=True
+    )
+    text: Mapped[str] = mapped_column(Text)
+    replaced_at: Mapped[datetime] = _ts()
 
 
 class MessageReceipt(Base):

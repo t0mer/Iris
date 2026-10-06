@@ -80,3 +80,20 @@ async def test_redacted_insert_not_indexed_and_delete_keeps_index_sound(
         await c.execute(text("DELETE FROM messages WHERE id=50"))
     async with engine.connect() as c:
         await c.execute(text("INSERT INTO messages_fts(messages_fts) VALUES ('integrity-check')"))
+
+
+async def test_message_change_migration_round_trips(tmp_path: Path) -> None:
+    from alembic import command
+    from alembic.config import Config
+
+    url = f"sqlite+aiosqlite:///{tmp_path / 'm.db'}"
+    await __import__("asyncio").to_thread(upgrade_head, url)
+    cfg = Config("alembic.ini")
+    cfg.attributes["url"] = url
+    await __import__("asyncio").to_thread(command.downgrade, cfg, "0003")
+    await __import__("asyncio").to_thread(command.upgrade, cfg, "head")
+    engine = make_engine(url)
+    async with engine.connect() as c:
+        tables = {r[0] for r in await c.execute(text("select name from sqlite_master"))}
+        cols = {r[1] for r in await c.execute(text("pragma table_info(messages)"))}
+    assert "message_revisions" in tables and {"edited_at", "revoked_at"} <= cols
