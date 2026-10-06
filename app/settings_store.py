@@ -114,6 +114,7 @@ REGISTRY: dict[str, Spec] = {
     "alerts.recipient": Spec(None, _opt_str),
     "alerts.cooldown_minutes": Spec(10, _int_range(0, 1440)),
     "alerts.alert_on_review": Spec(False, _bool),
+    "alerts.notify_changes": Spec(True, _bool),
     "alerts.timezone": Spec("Asia/Jerusalem", _timezone),
 }
 

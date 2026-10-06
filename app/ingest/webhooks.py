@@ -22,8 +22,16 @@ from app.api.instances import webhook_secret
 from app.config import Settings, get_settings
 from app.db.models import Chat, ChatInstance, Instance, Job, Message, MessageReceipt
 from app.deps import get_db
+from app.ingest.changes import apply_change
 from app.metrics import WEBHOOKS
-from app.openwa.payloads import IncomingMessage, PayloadError, parse_event
+from app.openwa.payloads import (
+    CHANGE_EVENTS,
+    IncomingMessage,
+    MessageChange,
+    PayloadError,
+    parse_change,
+    parse_event,
+)
 from app.settings_store import get_setting
 
 router = APIRouter()
@@ -186,9 +194,12 @@ async def receive(
             WEBHOOKS.labels(str(inst_id), "rejected").inc()
             raise HTTPException(status_code=401, detail="bad signature")
 
+    change: MessageChange | None = None
     try:
         body = json.loads(raw)
         msg = parse_event(body) if isinstance(body, dict) else None
+        if isinstance(body, dict) and body.get("event") in CHANGE_EVENTS:
+            change = parse_change(body)
     except (ValueError, PayloadError) as exc:
         # 200 so OpenWA does not retry a payload we can never parse.
         logger.warning("unparseable webhook for instance {}: {}", inst_id, exc.__class__.__name__)
@@ -196,6 +207,11 @@ async def receive(
         return {"result": "rejected"}
 
     inst.last_webhook_at = datetime.now(UTC)
+    if change is not None:
+        async with _STORE_LOCK:
+            result = await apply_change(db, change)
+        WEBHOOKS.labels(str(inst_id), result).inc()  # edited | revoked | duplicate | ignored
+        return {"result": result}
     if msg is None:
         await db.commit()
         WEBHOOKS.labels(str(inst_id), "skipped").inc()
