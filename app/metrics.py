@@ -1,5 +1,7 @@
 """Prometheus metrics (spec 13). `/metrics` is unauthenticated: do not expose it publicly."""
 
+import time
+
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,9 +53,18 @@ def record_provider(provider: str, endpoint: str, status: str, seconds: float) -
     PROVIDER_SECONDS.labels(provider, endpoint).observe(seconds)
 
 
+_GAUGE_TTL = 5.0  # seconds: scrapes inside this window do not touch the database
+_gauge_refreshed = 0.0
+
+
 async def render(db: AsyncSession) -> bytes:
-    """Refresh the job gauge from the queue, then render all metrics."""
-    counts = dict((await db.execute(select(Job.status, func.count()).group_by(Job.status))).all())
-    for status in _JOB_STATUSES:
-        JOBS.labels(status).set(int(counts.get(status, 0)))
+    """Refresh the job gauge from the queue (at most every few seconds), then render."""
+    global _gauge_refreshed
+    if time.monotonic() - _gauge_refreshed >= _GAUGE_TTL:
+        counts = dict(
+            (await db.execute(select(Job.status, func.count()).group_by(Job.status))).all()
+        )
+        for status in _JOB_STATUSES:
+            JOBS.labels(status).set(int(counts.get(status, 0)))
+        _gauge_refreshed = time.monotonic()
     return generate_latest(REGISTRY)

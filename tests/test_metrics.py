@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import pytest
 import respx
 
 from app.classify.moderation import URL as MOD_URL
@@ -116,3 +117,34 @@ async def test_transcribed_audio_seconds_and_failed_provider_status(app_client: 
     )
     await deps.providers.aclose()
     assert MEDIA_URL and Path
+
+
+async def test_metrics_token_is_enforced_when_configured(
+    app_client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.config import get_settings
+
+    app_client.cookies.clear()
+    monkeypatch.setenv("IRIS_METRICS_TOKEN", "scrape-secret")
+    get_settings.cache_clear()
+    assert (await app_client.get("/metrics")).status_code == 401
+    bad = await app_client.get("/metrics", headers={"Authorization": "Bearer nope"})
+    assert bad.status_code == 401 and bad.headers["www-authenticate"] == "Bearer"
+    ok = await app_client.get("/metrics", headers={"Authorization": "Bearer scrape-secret"})
+    assert ok.status_code == 200 and "iris_webhooks_total" in ok.text
+    monkeypatch.delenv("IRIS_METRICS_TOKEN")
+    get_settings.cache_clear()
+    assert (await app_client.get("/metrics")).status_code == 200  # open again when unset
+
+
+async def test_job_gauge_is_cached_between_scrapes(app_client: Any) -> None:
+    from app import metrics
+
+    metrics._gauge_refreshed = 0.0
+    _, token = await make_instance(app_client)
+    await app_client.get("/metrics")  # refreshes the gauge
+    await post(app_client, token, fx("text_received_mixed"))  # a new queued job
+    cached = (await app_client.get("/metrics")).text
+    assert 'iris_jobs{status="queued"} 0.0' in cached  # served from the cache, no DB hit
+    metrics._gauge_refreshed = 0.0
+    assert 'iris_jobs{status="queued"} 1.0' in (await app_client.get("/metrics")).text

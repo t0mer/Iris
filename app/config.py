@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     workers: int = Field(default=3, ge=0)  # 0 disables the pool (tests)
     log_level: str = "INFO"
     log_json: bool = False
+    # Optional bearer token for /metrics. Unset = open (spec); set it when the port is reachable
+    # from outside, because OpenWA needs the same port for webhooks.
+    metrics_token: str | None = None
 
     @field_validator("secret_key")
     @classmethod

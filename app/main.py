@@ -1,6 +1,7 @@
 """FastAPI app factory."""
 
 import asyncio
+import hmac
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -102,7 +103,12 @@ def create_app() -> FastAPI:
 
     @app.get("/metrics", include_in_schema=False)
     async def metrics(request: Request) -> Response:
-        # No auth by design (Prometheus scrape): keep this port off the public internet.
+        # Open by default (Prometheus scrape); IRIS_METRICS_TOKEN makes it require a bearer token.
+        token = get_settings().metrics_token
+        if token and not hmac.compare_digest(
+            request.headers.get("authorization", ""), f"Bearer {token}"
+        ):
+            raise HTTPException(status_code=401, headers={"WWW-Authenticate": "Bearer"})
         async with request.app.state.session_factory() as db:
             body = await render_metrics(db)
         return Response(body, media_type="text/plain; version=0.0.4; charset=utf-8")

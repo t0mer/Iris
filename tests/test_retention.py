@@ -4,7 +4,7 @@ from typing import Any
 from sqlalchemy import func, select, text, update
 
 from app.alerts.service import create_alert
-from app.db.models import Alert, Classification, Job, Message, MessageReceipt
+from app.db.models import Alert, Chat, Classification, Job, Message, MessageReceipt
 from app.retention import run_retention
 from app.settings_store import set_setting
 from tests.test_alerts import msg_body
@@ -62,7 +62,10 @@ async def test_old_messages_deleted_with_their_rows_and_search_entries(app_clien
         assert hits == 1  # only the recent message is still searchable
 
 
-async def test_message_with_open_alert_is_kept_but_dismissed_one_goes(app_client: Any) -> None:
+async def test_message_is_kept_while_any_alert_exists_then_goes_with_the_expired_alert(
+    app_client: Any,
+) -> None:
+    """The alert row cascades with its message, so the message outlives its alert."""
     _, token = await make_instance(app_client)
     ids = await seed(app_client, token, ["K1", "K2", "K3"], [200, 200, 200])
     async with app_client.app.state.session_factory() as s:
@@ -72,11 +75,23 @@ async def test_message_with_open_alert_is_kept_but_dismissed_one_goes(app_client
             await create_alert(s, m, {"violence": 0.9})
         await s.execute(update(Alert).where(Alert.message_id == ids[1]).values(status="dismissed"))
         await s.commit()
-    res = await run_retention(app_client.app.state.session_factory, NOW)
-    async with app_client.app.state.session_factory() as s:
+    factory = app_client.app.state.session_factory
+    res = await run_retention(factory, NOW)
+    async with factory() as s:
         left = (await s.execute(select(Message.id))).scalars().all()
-    assert left == [ids[0]] and res["messages"] == 2  # open-alert message survives
-    assert await count(app_client, Alert) == 1
+    # 200-day-old messages, but both alerts are young: open AND dismissed alerts keep theirs
+    assert left == ids[:2] and res["messages"] == 1  # only the alert-free message went
+    assert await count(app_client, Alert) == 2
+    # the dismissed alert passes its own retention: alert and message go in the same pass
+    async with factory() as s:
+        await s.execute(
+            update(Alert).where(Alert.message_id == ids[1]).values(created_at=datetime(2025, 1, 1))
+        )
+        await s.commit()
+    res = await run_retention(factory, NOW)
+    async with factory() as s:
+        assert (await s.execute(select(Message.id))).scalars().all() == [ids[0]]
+    assert res["alerts"] == 1 and res["messages"] == 1 and await count(app_client, Alert) == 1
 
 
 async def test_old_alerts_and_old_done_jobs_are_deleted(app_client: Any) -> None:
@@ -121,3 +136,28 @@ async def test_retention_settings_validated(app_client: Any) -> None:
         assert r.status_code == 422
     ok = await app_client.put("/api/settings", json={"settings": {"retention.alert_days": 30}})
     assert ok.json()["retention.alert_days"] == 30
+
+
+async def test_old_failed_jobs_and_empty_chats_are_removed(app_client: Any) -> None:
+    _, token = await make_instance(app_client)
+    await seed(app_client, token, ["F1", "F2"], [200, 1])
+    async with app_client.app.state.session_factory() as s:
+        await s.execute(
+            update(Job).where(Job.id == 1).values(status="failed", created_at=datetime(2026, 8, 1))
+        )
+        await s.execute(
+            update(Job).where(Job.id == 2).values(status="dead", created_at=datetime(2026, 10, 1))
+        )
+        await s.commit()
+    res = await run_retention(app_client.app.state.session_factory, NOW)
+    async with app_client.app.state.session_factory() as s:
+        jobs = (await s.execute(select(Job.id))).scalars().all()
+    assert jobs == [2]  # the 66-day-old failed job is pruned, the recent dead one stays visible
+    assert (
+        res["messages"] == 1 and res["chats"] == 0
+    )  # both messages share one chat; it still has one
+    async with app_client.app.state.session_factory() as s:
+        await s.execute(update(Message).values(sent_at=datetime(2020, 1, 1)))
+        await s.commit()
+    res = await run_retention(app_client.app.state.session_factory, NOW)
+    assert res["chats"] == 1 and await count(app_client, Chat) == 0

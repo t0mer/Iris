@@ -142,7 +142,6 @@ async def _prepare(db: AsyncSession, job: ClaimedJob, deps: Deps, message: Messa
 
 def _persist(db: AsyncSession, message: Message, outcome: PipelineOutcome) -> None:
     for r in outcome.results:
-        STAGE_SECONDS.labels(r.stage).observe(r.latency_ms / 1000)
         db.add(
             Classification(
                 message_id=message.id,
@@ -221,7 +220,6 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             return
         message.verdict = outcome.verdict
         message.status = "done"
-        MESSAGES.labels(message.type, outcome.verdict).inc()
         if outcome.results:
             last = outcome.results[-1]
             if needs_redaction(message.type, last.high_categories, last.flagged_categories):
@@ -232,6 +230,10 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
                     "message {} redacted at classification; content withheld", message.id
                 )
         await db.commit()
+        # Metrics only after the commit, so a retried job is never counted twice.
+        MESSAGES.labels(message.type, outcome.verdict).inc()
+        for r in outcome.results:
+            STAGE_SECONDS.labels(r.stage).observe(r.latency_ms / 1000)
         logger.info(
             "message {} classified: type={} verdict={} stages={}",
             message.id,
