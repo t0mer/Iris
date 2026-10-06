@@ -82,6 +82,8 @@ export function MessageContext() {
       {!context && <Skeleton className="h-64" />}
       <ol
         ref={panel}
+        tabIndex={0}
+        aria-label="Messages in this conversation"
         className="relative flex max-h-[65dvh] flex-col gap-2 overflow-y-auto rounded-lg border bg-surface-2/50 p-3 sm:p-4"
       >
         {context?.map((m) => {

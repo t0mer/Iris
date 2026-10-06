@@ -43,8 +43,11 @@ container (amd64 and arm64), and uses free or low-cost models wherever possible.
   cooldown avoids floods and the next alert says how many were held back.
 - **Both sessions monitored?** A message between two monitored kids is stored once, with both kids on it, and
   produces one alert.
-- **Searchable archive** (SQLite FTS5, Hebrew and English) with filters, a chat-style context view,
-  highlighting, and a dark mode.
+- **Searchable archive** (SQLite FTS5, Hebrew and English) with filters, a chat-style context view and
+  match highlighting.
+- **A modern, responsive portal.** A sidebar on desktop, an icon rail on tablets, and a bottom tab bar on
+  phones, so an alert link opens into something you can use one-handed. Light and dark themes follow your
+  system, and the whole portal passes an automated accessibility scan (keyboard, contrast, screen readers).
 - **Sexual content safety rule.** Content involving minors, or sexual imagery, is withheld entirely: it is
   not stored, not searchable, not shown and not forwarded. The alert says to review the chat directly.
 - **Self-hosted and private.** Secrets are encrypted at rest, logs never contain message text, media is
@@ -136,9 +139,9 @@ IRIS_ADMIN_USERNAME=admin IRIS_ADMIN_PASSWORD=change-me IRIS_DATA_DIR=./data \
 
 ## Connecting OpenWA
 
-1. In the portal go to **Instances → Add instance** and enter the kid's name, your OpenWA base URL, the
+1. In the portal go to **Phones → Add a phone** and enter the child's name, your OpenWA address, the
    OpenWA **session ID** (the full UUID, not the name) and an OpenWA API key that can use that session.
-2. Click **Register webhook in OpenWA**. Iris creates a webhook for `message.received` and
+2. Click **Register in OpenWA**. Iris creates a webhook for `message.received` and
    `message.sent` and a signing secret, so deliveries are verified with an HMAC. If registration says the
    destination is not allowed, your `IRIS_PUBLIC_BASE_URL` is a private address (see Requirements).
    You can also paste the shown URL (`https://…/webhooks/<token>`) into OpenWA by hand.
@@ -149,11 +152,11 @@ IRIS_ADMIN_USERNAME=admin IRIS_ADMIN_PASSWORD=change-me IRIS_DATA_DIR=./data \
 
 ![Settings: alerts](assets/screenshots/settings-alerts.png)
 
-![Instances](assets/screenshots/instances.png)
+![Phones](assets/screenshots/instances.png)
 
-Rotating a webhook token cuts the old URL off immediately; register the webhook again afterwards. The
-**Last webhook** column shows when each number last reported in; the dashboard warns about instances that
-never have.
+**New webhook address** cuts the old URL off immediately; register the new one afterwards. Each phone shows
+when it last received a message, or **Nothing received yet**, and the Home screen flags phones that never
+have. Use the switch to pause watching a phone without removing it.
 
 ## Configuration
 
@@ -205,13 +208,23 @@ and violence (0.20 / 0.70). Iris decides from the category scores, not from the 
 
 ## Using the portal
 
+### Home
+
+![Home](assets/screenshots/dashboard.png)
+
+The **iris ring** answers the first question: all violet means all quiet; coral arcs are alerts waiting for
+you and saffron arcs are messages Iris could not decide. Below it, **Needs attention** lists everything that
+needs you or needs fixing (unread alerts, items to review, undelivered alerts, failed jobs, phones that never
+reported) with a button for each, and the **activity chart** shows 14 days of messages by verdict. Everything
+refreshes about every minute. The chart is also available as a table.
+
 ### Alerts
 
 ![Alerts](assets/screenshots/alerts.png)
 
 Each alert shows the kid, chat, sender, categories with scores, the quote and whether it was delivered. Open
-one to see the full score breakdown per stage, link to the message **in its chat context**, acknowledge or
-dismiss it, or **resend** it if delivery failed.
+one to see how Iris decided, jump to the message **in its conversation**, **mark it as seen** or **dismiss**
+it, or **send it again** if delivery failed.
 
 ![Alert detail](assets/screenshots/alert-detail.png)
 
@@ -260,10 +273,22 @@ Messages that stayed inconclusive even with the surrounding chat wait here. **Ma
 **Jobs** lists work that failed, with the reason, and a Retry button. A message that failed shows `failed`
 and its reason in the message list (it is never silently shown as pending).
 
-### Dark mode
+### On your phone
 
-The portal follows your system's light or dark preference. The button in the top bar cycles between
-**System**, **Light** and **Dark** and remembers your choice in the browser.
+The portal is built for phones first: alert links from WhatsApp open straight into it. On a phone the
+sidebar becomes a bottom tab bar (Home, Alerts, Review, Messages and a **More** sheet for Chats, Phones, Jobs,
+Settings, the theme and sign out), filters tuck behind one **Filters** button, and every control is a
+comfortable touch target.
+
+| | | |
+|---|---|---|
+| ![Home on a phone](assets/screenshots/phone-dashboard.png) | ![Alerts on a phone](assets/screenshots/phone-alerts.png) | ![The More sheet](assets/screenshots/phone-more.png) |
+| ![Filters sheet](assets/screenshots/phone-filters.png) | ![Review in dark mode](assets/screenshots/phone-review-dark.png) | |
+
+### Light and dark
+
+The portal follows your system's light or dark preference. Change it from the account menu (bottom of the
+sidebar) or the **More** sheet: **System**, **Light** or **Dark**. The choice is remembered in the browser.
 
 ![Dashboard in dark mode](assets/screenshots/dashboard-dark.png)
 
@@ -352,7 +377,7 @@ to it.
 `suppressed` by the per-chat cooldown). Check that the sender session is running, then **Resend**. The
 **Test** button under Settings → Alerts verifies the sender and recipient.
 
-**An instance shows "Last webhook: never".** OpenWA cannot reach `IRIS_PUBLIC_BASE_URL`, or the webhook was
+**A phone shows "Nothing received yet".** OpenWA cannot reach `IRIS_PUBLIC_BASE_URL`, or the webhook was
 not registered. Check the URL from the OpenWA host.
 
 **A borderline message was flagged.** Context can raise a score: a casual "you're dead meat, lol" after a

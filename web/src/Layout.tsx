@@ -63,7 +63,7 @@ function SideLink({ item, stats, wide }: { item: NavItem; stats?: Stats; wide: b
     <NavLink
       to={item.to}
       end={item.to === '/'}
-      aria-label={wide ? undefined : item.label}
+      aria-label={wide ? undefined : n > 0 ? `${item.label}, ${n} waiting` : item.label}
       title={wide ? undefined : item.label}
       className={({ isActive }) =>
         cn(
