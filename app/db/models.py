@@ -86,7 +86,7 @@ class Message(Base):
     redacted: Mapped[bool] = mapped_column(Boolean, default=False)
     # How to fetch the media from OpenWA: {instance_id, chat_id, message_ref, mimetype, ...}.
     # Kept on the message (not only the job) so reprocessing media messages keeps working.
-    media: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    media: Mapped[dict[str, Any] | None] = mapped_column(JSON(none_as_null=True))
     # Set when OpenWA reports an edit / a delete-for-everyone (received time, not WhatsApp's).
     edited_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
@@ -127,7 +127,7 @@ class Classification(Base):
     scores: Mapped[dict[str, Any]] = mapped_column(JSON)
     flagged_categories: Mapped[list[str]] = mapped_column(JSON, default=list)
     band: Mapped[str] = mapped_column(String(255))
-    context_message_ids: Mapped[list[int] | None] = mapped_column(JSON)
+    context_message_ids: Mapped[list[int] | None] = mapped_column(JSON(none_as_null=True))
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = _ts()
 

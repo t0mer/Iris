@@ -12,7 +12,7 @@ from typing import Any
 
 from loguru import logger
 from sqlalchemy import Table, func, select, text
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from app.db.engine import make_engine
 from app.db.migrate import upgrade_head
@@ -56,51 +56,88 @@ async def copy_database(
     progress: CopyProgress,
     on_change: Callable[[], None] = lambda: None,
 ) -> dict[str, int]:
-    """Migrate the target's schema, require it to be empty, copy, then verify the row counts."""
+    """Migrate the target's schema, require it to be empty, copy, then verify the row counts.
+
+    All reads happen in one snapshot of the source, so rows written or deleted meanwhile cannot
+    break the foreign keys or skip rows. If anything fails after the first row was written, the
+    target is emptied again, so the copy can simply be retried.
+    """
     progress.state, progress.copied, progress.error = "running", {}, None
     target = make_engine(config=target_cfg)
+    started = False
     try:
-        url = target_cfg.to_url().render_as_string(hide_password=False)
-        await asyncio.to_thread(upgrade_head, url)
+        await asyncio.to_thread(upgrade_head, None, target_cfg)
         if await target_has_data(target):
             raise CopyError("The new database already contains data. Use an empty database.")
-        for table in _tables():
-            progress.table = table.name
-            on_change()
-            progress.copied[table.name] = await _copy_table(source, target, table)
-            on_change()
+        started = True
+        async with source.connect() as src:
+            await _begin_snapshot(src)
+            expected: dict[str, int] = {}
+            for table in _tables():
+                progress.table = table.name
+                on_change()
+                expected[table.name] = int(
+                    (await src.execute(select(func.count()).select_from(table))).scalar_one()
+                )
+                progress.copied[table.name] = await _copy_table(src, target, table)
+                on_change()
+            await src.rollback()  # read only: ends the snapshot
         await _reset_sequences(target)
         for table in _tables():
-            if await count_rows(target, table) != progress.copied[table.name]:
+            if progress.copied[table.name] != expected[table.name]:
+                raise CopyError(f"The copy of {table.name} is incomplete. Nothing was switched.")
+            if await count_rows(target, table) != expected[table.name]:
                 raise CopyError(f"The copy of {table.name} is incomplete. Nothing was switched.")
         progress.state, progress.table = "done", ""
         logger.info("database copied to {}: {}", target_cfg.describe(), progress.copied)
         return dict(progress.copied)
-    except CopyError as exc:
-        progress.state, progress.error = "failed", str(exc)
-        raise
     except Exception as exc:
+        if started:
+            await _empty(target)
+        if isinstance(exc, CopyError):
+            progress.state, progress.error = "failed", str(exc)
+            raise
         # Driver messages can name the server or the user: only the class is logged or shown.
-        logger.error("database copy failed: {}", exc.__class__.__name__)
+        name = exc.__class__.__name__
+        logger.error("database copy failed: {}", name)
         progress.state = "failed"
-        progress.error = (
-            f"The copy stopped ({exc.__class__.__name__}). The old database is untouched."
-        )
+        progress.error = f"The copy stopped ({name}). The old database is untouched."
         raise CopyError(progress.error) from exc
     finally:
         await target.dispose()
 
 
-async def _copy_table(source: AsyncEngine, target: AsyncEngine, table: Table) -> int:
+async def _begin_snapshot(src: AsyncConnection) -> None:
+    """Make every later read see the database as it is now."""
+    if src.dialect.name == "sqlite":
+        await src.exec_driver_sql("BEGIN")  # a WAL read transaction pins a snapshot
+    else:
+        await src.execution_options(isolation_level="REPEATABLE READ")
+
+
+async def _empty(target: AsyncEngine) -> None:
+    """Undo a half-finished copy (only ever called on a target that was empty when we started)."""
+    try:
+        async with target.begin() as conn:
+            if target.dialect.name == "mysql":
+                await conn.execute(text("SET FOREIGN_KEY_CHECKS=0"))
+            for table in reversed(_tables()):
+                await conn.execute(table.delete())
+            if target.dialect.name == "mysql":
+                await conn.execute(text("SET FOREIGN_KEY_CHECKS=1"))
+    except Exception as exc:
+        logger.error("could not empty the target after a failed copy: {}", exc.__class__.__name__)
+
+
+async def _copy_table(src: AsyncConnection, target: AsyncEngine, table: Table) -> int:
     order = [c for c in table.primary_key.columns] or list(table.columns)
     total, offset = 0, 0
     while True:
-        async with source.connect() as src:
-            rows = (
-                (await src.execute(select(table).order_by(*order).limit(BATCH).offset(offset)))
-                .mappings()
-                .all()
-            )
+        rows = (
+            (await src.execute(select(table).order_by(*order).limit(BATCH).offset(offset)))
+            .mappings()
+            .all()
+        )
         if not rows:
             return total
         async with target.begin() as dst:

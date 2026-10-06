@@ -25,7 +25,7 @@ def _run(connection: Connection) -> None:
 
 async def _run_async() -> None:
     url = context.config.attributes.get("url")
-    engine = make_engine(url)
+    engine = make_engine(url, config=context.config.attributes.get("db_config"))
     async with engine.connect() as conn:
         await conn.run_sync(_run)
     await engine.dispose()

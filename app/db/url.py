@@ -41,6 +41,10 @@ _ALIASES = {
 }
 
 
+class DbConfigError(Exception):
+    """The saved database choice cannot be used. The message is safe to show and to log."""
+
+
 @dataclass(frozen=True)
 class DbConfig:
     kind: Kind = "sqlite"
@@ -130,17 +134,26 @@ def load_file(settings: Settings | None = None) -> DbConfig | None:
     path = config_path(s.data_dir)
     if not path.exists():
         return None
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    enc = raw.get("password_enc")
-    return DbConfig(
-        kind=raw["kind"],
-        host=raw.get("host", ""),
-        port=raw.get("port"),
-        name=raw.get("name", ""),
-        user=raw.get("user", ""),
-        password=decrypt(s.key_bytes, enc) if enc else "",
-        tls=bool(raw.get("tls", False)),
-    )
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        enc = raw.get("password_enc")
+        cfg = DbConfig(
+            kind=raw["kind"],
+            host=raw.get("host", ""),
+            port=raw.get("port"),
+            name=raw.get("name", ""),
+            user=raw.get("user", ""),
+            password=decrypt(s.key_bytes, enc) if enc else "",
+            tls=bool(raw.get("tls", False)),
+        )
+        cfg.validate()
+    except Exception as exc:
+        # Never fall back to another database silently: new messages would end up in the wrong one.
+        raise DbConfigError(
+            f"{path} cannot be read ({exc.__class__.__name__}). Restore the IRIS_SECRET_KEY it "
+            "was saved with, or delete the file to use SQLite again."
+        ) from None
+    return cfg
 
 
 def save_file(cfg: DbConfig, settings: Settings | None = None) -> None:
