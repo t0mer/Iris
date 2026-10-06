@@ -216,6 +216,8 @@ Notes:
   English; on SQLite it uses the full-text index, which matches the start of words. The results page looks the same.
 - Iris creates its tables itself (migrations run at start). It never creates databases or users.
 - A different `IRIS_SECRET_KEY` cannot read the saved database password or the encrypted settings.
+- The copy reads one consistent snapshot of the current database, so rows written meanwhile cannot break it. If it
+  fails part-way, Iris empties the new database again and you can simply retry.
 
 ![Database settings in dark mode](assets/screenshots/database-postgres-dark.png)
 
@@ -468,6 +470,12 @@ outside, so set `IRIS_METRICS_TOKEN` or restrict `/metrics` in your reverse prox
 `localhost` is the container itself: use the server's address or its compose service name) and any firewall.
 "The user name or password was refused" and "That database does not exist" mean the server answered but the
 login or the database name is wrong. Iris never shows the password in these messages.
+
+**Iris will not start and the log says it cannot reach the database, or that `database.json` cannot be read.**
+Iris never falls back to SQLite on its own, because new messages would then land in a different database than
+your history. Start the database server, or restore the `IRIS_SECRET_KEY` the file was saved with. To give up
+on the saved choice, delete `database.json` in the data folder (or set `IRIS_DATABASE_URL=sqlite:////data/iris.db`)
+and restart.
 
 **I changed the database but Iris still shows the old one.** The choice applies at the next start: restart Iris.
 If **Settings > Database** is read only, `IRIS_DATABASE_URL` is set and wins.
