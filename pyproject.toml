@@ -19,6 +19,8 @@ dependencies = [
   "itsdangerous",
   "prometheus-client",
   "tzdata>=2026.5",
+  "asyncpg>=0.32.0",
+  "aiomysql>=0.3.2",
 ]
 
 [dependency-groups]
