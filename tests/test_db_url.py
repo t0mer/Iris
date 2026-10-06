@@ -119,6 +119,9 @@ def test_engine_options_per_database() -> None:
     )
     assert engine_options(MY)["isolation_level"] == "READ COMMITTED"
     assert "ssl" in engine_options(DbConfig(**{**PG.__dict__, "tls": True}))["connect_args"]
+    assert "ssl" not in engine_options(PG)["connect_args"]
+    assert engine_options(PG)["connect_args"]["timeout"] == 10
+    assert engine_options(MY)["connect_args"]["connect_timeout"] == 10
 
 
 async def test_only_sqlite_gets_the_pragmas(tmp_path: Path) -> None:
