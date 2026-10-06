@@ -5,6 +5,7 @@ from sqlalchemy.engine import Connection
 
 from app.db.engine import make_engine
 from app.db.models import Base
+from app.db.url import resolve
 
 target_metadata = Base.metadata
 
@@ -30,4 +31,23 @@ async def _run_async() -> None:
     await engine.dispose()
 
 
-asyncio.run(_run_async())
+def _run_offline() -> None:
+    """`alembic upgrade head --sql`: render the DDL for a dialect without connecting."""
+    url = context.config.attributes.get("url") or resolve()[0].to_url().render_as_string(
+        hide_password=False
+    )
+    context.configure(
+        url=url,
+        target_metadata=target_metadata,
+        include_object=_include_object,
+        literal_binds=True,
+        dialect_opts={"paramstyle": "named"},
+    )
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+if context.is_offline_mode():
+    _run_offline()
+else:
+    asyncio.run(_run_async())

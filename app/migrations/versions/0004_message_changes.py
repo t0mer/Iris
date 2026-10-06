@@ -7,6 +7,8 @@ Revises: 0003
 import sqlalchemy as sa
 from alembic import op
 
+from app.db.types import UTCDateTime
+
 revision = "0004"
 down_revision = "0003"
 branch_labels = None
@@ -14,8 +16,8 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("messages", sa.Column("edited_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("messages", sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True))
+    op.add_column("messages", sa.Column("edited_at", UTCDateTime(), nullable=True))
+    op.add_column("messages", sa.Column("revoked_at", UTCDateTime(), nullable=True))
     op.create_table(
         "message_revisions",
         sa.Column("id", sa.Integer(), primary_key=True),
@@ -26,7 +28,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("text", sa.Text(), nullable=False),
-        sa.Column("replaced_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("replaced_at", UTCDateTime(), nullable=False),
     )
     op.create_index("ix_message_revisions_message_id", "message_revisions", ["message_id"])
 

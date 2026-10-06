@@ -8,6 +8,7 @@ import sqlalchemy as sa
 from alembic import op
 
 from app.db.fts import FTS_STATEMENTS
+from app.db.types import UTCDateTime
 
 revision = "0001"
 down_revision = None
@@ -20,57 +21,57 @@ def upgrade() -> None:
     op.create_table(
         "chats",
         sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("wa_chat_id", sa.String(), nullable=False),
-        sa.Column("name", sa.String(), nullable=True),
+        sa.Column("wa_chat_id", sa.String(255), nullable=False),
+        sa.Column("name", sa.String(255), nullable=True),
         sa.Column("is_group", sa.Boolean(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", UTCDateTime(), nullable=False),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("wa_chat_id"),
     )
     op.create_table(
         "instances",
         sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("kid_name", sa.String(), nullable=False),
-        sa.Column("phone_number", sa.String(), nullable=True),
-        sa.Column("openwa_base_url", sa.String(), nullable=False),
-        sa.Column("openwa_instance_id", sa.String(), nullable=False),
+        sa.Column("kid_name", sa.String(255), nullable=False),
+        sa.Column("phone_number", sa.String(255), nullable=True),
+        sa.Column("openwa_base_url", sa.String(255), nullable=False),
+        sa.Column("openwa_instance_id", sa.String(255), nullable=False),
         sa.Column("openwa_api_key_enc", sa.Text(), nullable=True),
-        sa.Column("webhook_token", sa.String(), nullable=False),
+        sa.Column("webhook_token", sa.String(255), nullable=False),
         sa.Column("enabled", sa.Boolean(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("last_webhook_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", UTCDateTime(), nullable=False),
+        sa.Column("last_webhook_at", UTCDateTime(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(op.f("ix_instances_webhook_token"), "instances", ["webhook_token"], unique=True)
     op.create_table(
         "jobs",
         sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("type", sa.String(), nullable=False),
+        sa.Column("type", sa.String(255), nullable=False),
         sa.Column("payload", sa.JSON(), nullable=False),
-        sa.Column("status", sa.String(), nullable=False),
+        sa.Column("status", sa.String(255), nullable=False),
         sa.Column("attempts", sa.Integer(), nullable=False),
         sa.Column("max_attempts", sa.Integer(), nullable=False),
-        sa.Column("run_after", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("locked_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("run_after", UTCDateTime(), nullable=False),
+        sa.Column("locked_at", UTCDateTime(), nullable=True),
         sa.Column("last_error", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_at", UTCDateTime(), nullable=False),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(op.f("ix_jobs_status"), "jobs", ["status"], unique=False)
     op.create_table(
         "settings",
-        sa.Column("key", sa.String(), nullable=False),
+        sa.Column("key", sa.String(255), nullable=False),
         sa.Column("value", sa.JSON(), nullable=False),
         sa.Column("is_secret", sa.Boolean(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", UTCDateTime(), nullable=False),
         sa.PrimaryKeyConstraint("key"),
     )
     op.create_table(
         "users",
         sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("username", sa.String(), nullable=False),
-        sa.Column("password_hash", sa.String(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("username", sa.String(255), nullable=False),
+        sa.Column("password_hash", sa.String(255), nullable=False),
+        sa.Column("created_at", UTCDateTime(), nullable=False),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("username"),
     )
@@ -85,19 +86,19 @@ def upgrade() -> None:
     op.create_table(
         "messages",
         sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("wa_message_id", sa.String(), nullable=False),
+        sa.Column("wa_message_id", sa.String(255), nullable=False),
         sa.Column("chat_id", sa.Integer(), nullable=False),
-        sa.Column("sender_wa_id", sa.String(), nullable=True),
-        sa.Column("sender_name", sa.String(), nullable=True),
+        sa.Column("sender_wa_id", sa.String(255), nullable=True),
+        sa.Column("sender_name", sa.String(255), nullable=True),
         sa.Column("from_me", sa.Boolean(), nullable=False),
-        sa.Column("type", sa.String(), nullable=False),
+        sa.Column("type", sa.String(255), nullable=False),
         sa.Column("text", sa.Text(), nullable=True),
         sa.Column("transcript", sa.Text(), nullable=True),
-        sa.Column("quoted_wa_message_id", sa.String(), nullable=True),
-        sa.Column("sent_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("received_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("status", sa.String(), nullable=False),
-        sa.Column("verdict", sa.String(), nullable=True),
+        sa.Column("quoted_wa_message_id", sa.String(255), nullable=True),
+        sa.Column("sent_at", UTCDateTime(), nullable=False),
+        sa.Column("received_at", UTCDateTime(), nullable=False),
+        sa.Column("status", sa.String(255), nullable=False),
+        sa.Column("verdict", sa.String(255), nullable=True),
         sa.Column("redacted", sa.Boolean(), nullable=False),
         sa.ForeignKeyConstraint(["chat_id"], ["chats.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
@@ -114,15 +115,15 @@ def upgrade() -> None:
         sa.Column("categories", sa.JSON(), nullable=False),
         sa.Column("max_score", sa.Float(), nullable=False),
         sa.Column("kid_names", sa.JSON(), nullable=False),
-        sa.Column("chat_name", sa.String(), nullable=True),
-        sa.Column("sender_name", sa.String(), nullable=True),
+        sa.Column("chat_name", sa.String(255), nullable=True),
+        sa.Column("sender_name", sa.String(255), nullable=True),
         sa.Column("quote", sa.Text(), nullable=True),
-        sa.Column("status", sa.String(), nullable=False),
-        sa.Column("delivery_status", sa.String(), nullable=False),
+        sa.Column("status", sa.String(255), nullable=False),
+        sa.Column("delivery_status", sa.String(255), nullable=False),
         sa.Column("delivery_error", sa.Text(), nullable=True),
-        sa.Column("notified_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("notified_at", UTCDateTime(), nullable=True),
+        sa.Column("created_at", UTCDateTime(), nullable=False),
+        sa.Column("updated_at", UTCDateTime(), nullable=False),
         sa.ForeignKeyConstraint(["message_id"], ["messages.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("message_id"),
@@ -132,15 +133,15 @@ def upgrade() -> None:
         "classifications",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("message_id", sa.Integer(), nullable=False),
-        sa.Column("stage", sa.String(), nullable=False),
-        sa.Column("input_kind", sa.String(), nullable=False),
-        sa.Column("model", sa.String(), nullable=False),
+        sa.Column("stage", sa.String(255), nullable=False),
+        sa.Column("input_kind", sa.String(255), nullable=False),
+        sa.Column("model", sa.String(255), nullable=False),
         sa.Column("scores", sa.JSON(), nullable=False),
         sa.Column("flagged_categories", sa.JSON(), nullable=False),
-        sa.Column("band", sa.String(), nullable=False),
+        sa.Column("band", sa.String(255), nullable=False),
         sa.Column("context_message_ids", sa.JSON(), nullable=True),
         sa.Column("latency_ms", sa.Integer(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_at", UTCDateTime(), nullable=False),
         sa.ForeignKeyConstraint(["message_id"], ["messages.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
@@ -151,20 +152,23 @@ def upgrade() -> None:
         "message_receipts",
         sa.Column("message_id", sa.Integer(), nullable=False),
         sa.Column("instance_id", sa.Integer(), nullable=False),
-        sa.Column("received_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("received_at", UTCDateTime(), nullable=False),
         sa.ForeignKeyConstraint(["instance_id"], ["instances.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["message_id"], ["messages.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("message_id", "instance_id"),
     )
     # ### end Alembic commands ###
-    for stmt in FTS_STATEMENTS:
-        op.execute(stmt)
+    # Full-text search is SQLite FTS5 only; other databases search with plain substring matches.
+    if op.get_context().dialect.name == "sqlite":
+        for stmt in FTS_STATEMENTS:
+            op.execute(stmt)
 
 
 def downgrade() -> None:
-    for t in ("messages_ai", "messages_ad", "messages_au"):
-        op.execute(f"DROP TRIGGER IF EXISTS {t}")
-    op.execute("DROP TABLE IF EXISTS messages_fts")
+    if op.get_context().dialect.name == "sqlite":
+        for t in ("messages_ai", "messages_ad", "messages_au"):
+            op.execute(f"DROP TRIGGER IF EXISTS {t}")
+        op.execute("DROP TABLE IF EXISTS messages_fts")
     # ### commands auto generated by Alembic - please adjust! ###
     op.drop_table("message_receipts")
     op.drop_index(op.f("ix_classifications_message_id"), table_name="classifications")

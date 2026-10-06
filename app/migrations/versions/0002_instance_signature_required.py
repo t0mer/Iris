@@ -16,7 +16,7 @@ depends_on = None
 def upgrade() -> None:
     op.add_column(
         "instances",
-        sa.Column("signature_required", sa.Boolean(), server_default="0", nullable=False),
+        sa.Column("signature_required", sa.Boolean(), server_default=sa.false(), nullable=False),
     )
 
 
