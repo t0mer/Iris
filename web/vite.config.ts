@@ -5,7 +5,8 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  build: { outDir: '../app/static', emptyOutDir: true },
+  // Fonts must be real files: the Content-Security-Policy blocks data: fonts.
+  build: { outDir: '../app/static', emptyOutDir: true, assetsInlineLimit: 0 },
   server: { proxy: { '/api': 'http://localhost:8080' } },
   test: { environment: 'jsdom', setupFiles: ['./src/test-setup.ts'], globals: true },
 })

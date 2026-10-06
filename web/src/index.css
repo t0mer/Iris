@@ -2,9 +2,140 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/*
+ * Design tokens. Neutrals are tinted toward violet (never pure grey). Colour only ever
+ * carries state together with an icon and a word: coral = harmful, saffron = needs a look,
+ * sage = fine, iris = the interface itself.
+ */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
+  --background: #f4f3fa;
+  --surface: #ffffff;
+  --surface-2: #ecebf6;
+  --foreground: #14122b;
+  --muted-foreground: #5b577a;
+  --border: #dcd9ee;
+  --border-strong: #bdb8dc;
+  --primary: #6d5bd0;
+  --primary-foreground: #ffffff;
+  --primary-soft: #e7e3fa;
+  --ring: #6d5bd0;
+  --danger: #b8383a;
+  --danger-soft: #fbe5e4;
+  --warning: #8d5a0f;
+  --warning-soft: #fbefd5;
+  --success: #25735a;
+  --success-soft: #dcf1e8;
+  --mark: #ffe9a6;
+  --shadow: 0 10px 30px -12px rgb(20 18 43 / 0.35);
 }
-body {
-  @apply bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100;
+
+:root.dark {
+  color-scheme: dark;
+  --background: #100e24;
+  --surface: #1a1838;
+  --surface-2: #231f47;
+  --foreground: #eceaf8;
+  --muted-foreground: #a6a2c8;
+  --border: #2e2a58;
+  --border-strong: #433e7a;
+  --primary: #8b7be8;
+  --primary-foreground: #14122b;
+  --primary-soft: #2c2761;
+  --ring: #a99cf2;
+  --danger: #f08682;
+  --danger-soft: #45202a;
+  --warning: #eab45c;
+  --warning-soft: #3d2f17;
+  --success: #62c9a5;
+  --success-soft: #173a31;
+  --mark: #5c4a12;
+  --shadow: 0 10px 30px -12px rgb(0 0 0 / 0.7);
+}
+
+@theme inline {
+  --font-sans: 'Rubik Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-ring: var(--ring);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-mark: var(--mark);
+  --shadow-overlay: var(--shadow);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 28px;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.5;
+    font-feature-settings: 'tnum' 0;
+    text-rendering: optimizeLegibility;
+  }
+  * {
+    border-color: var(--border);
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  button,
+  [role='button'],
+  a,
+  select,
+  summary {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The one moment of motion: the iris ring draws itself once on the dashboard. */
+@keyframes iris-draw {
+  from {
+    stroke-dashoffset: var(--len);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.iris-arc {
+  stroke-dasharray: var(--len);
+  animation: iris-draw 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .iris-arc {
+    animation: none;
+  }
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }
