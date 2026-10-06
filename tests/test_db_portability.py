@@ -89,7 +89,7 @@ async def test_wildcards_in_the_query_are_literal_and_redacted_rows_never_match(
     await _seed(app_client)
     assert await _find(app_client, "%") == {}  # punctuation-only has no tokens
     assert len(await _find(app_client, "sure_thing")) == 1
-    assert await _find(app_client, "sure%thing") == {}  # the % is not a wildcard
+    assert await _find(app_client, "su_e") == {}  # the _ is not a single-character wildcard
     assert await _find(app_client, "Hidden") == {}  # redacted: not even the sender matches
 
 
