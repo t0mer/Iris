@@ -16,10 +16,11 @@ export function Pagination({
   noun: [string, string]
 }) {
   const pages = Math.max(1, Math.ceil(total / pageSize))
+  const label = total === 1 ? noun[0] : noun[1]
   if (total <= pageSize)
     return total > 0 ? (
       <p className="text-sm text-muted-foreground">
-        {total} {noun}
+        {total} {label}
       </p>
     ) : null
   const from = (page - 1) * pageSize + 1
