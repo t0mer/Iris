@@ -43,6 +43,10 @@ container (amd64 and arm64), and uses free or low-cost models wherever possible.
   cooldown avoids floods and the next alert says how many were held back.
 - **Both sessions monitored?** A message between two monitored kids is stored once, with both kids on it, and
   produces one alert.
+- **Edits and deletes are kept.** A message the sender deletes for everyone stays in Iris with a red border
+  and a "Deleted for everyone" label. An edited message gets an **Edited** marker, and the original wording
+  and every earlier version stay available as an edit history. Iris tells you on WhatsApp when the message of
+  an alert you already received is edited or deleted.
 - **Searchable archive** (SQLite FTS5, Hebrew and English) with filters, a chat-style context view and
   match highlighting.
 - **A modern, responsive portal.** A sidebar on desktop, an icon rail on tablets, and a bottom tab bar on
@@ -141,8 +145,10 @@ IRIS_ADMIN_USERNAME=admin IRIS_ADMIN_PASSWORD=change-me IRIS_DATA_DIR=./data \
 
 1. In the portal go to **Phones → Add a phone** and enter the child's name, your OpenWA address, the
    OpenWA **session ID** (the full UUID, not the name) and an OpenWA API key that can use that session.
-2. Click **Register in OpenWA**. Iris creates a webhook for `message.received` and
-   `message.sent` and a signing secret, so deliveries are verified with an HMAC. If registration says the
+2. Click **Register in OpenWA**. Iris subscribes a webhook to `message.received`, `message.sent`,
+   `message.edited` and `message.revoked` and sets a signing secret, so deliveries are verified with an HMAC.
+   Running it again **updates** the webhook already pointing at Iris (it keeps any other events you added),
+   so it never creates a duplicate. Phones registered before edits and deletes were supported need one more click. If registration says the
    destination is not allowed, your `IRIS_PUBLIC_BASE_URL` is a private address (see Requirements).
    You can also paste the shown URL (`https://…/webhooks/<token>`) into OpenWA by hand.
 3. Repeat for every number you monitor.
@@ -192,6 +198,7 @@ UI only ever say whether one is set.
 | Classification | Context window / max age | 8 messages / 6 hours |
 | Alerts | Sender instance, recipient, cooldown, time zone | cooldown 10 min, `Asia/Jerusalem` |
 | Alerts | Also alert on items needing review | off |
+| Alerts | Tell me when an alerted message is edited or deleted | on |
 | Scope | Monitor messages sent by the kid, direct chats, groups | all on |
 | Retention | Keep messages / alerts | 90 / 365 days |
 
@@ -263,6 +270,37 @@ highlighted and its classifications.
 
 Messages that stayed inconclusive even with the surrounding chat wait here. **Mark safe** closes them;
 **Mark harmful** creates an alert.
+
+### Edited and deleted messages
+
+![Messages marked as edited and deleted](assets/screenshots/messages-changes.png)
+
+When OpenWA reports that a message was **deleted for everyone**, Iris keeps it, draws a red border around it
+and adds **Deleted for everyone** (in words as well as colour). The sender removed it from the chat, but you
+can still read it here, and an alert for it stays.
+
+![A deleted message in its conversation](assets/screenshots/message-revoked.png)
+
+An **edited** message shows an **Edited** marker. Open it in the conversation to see the **edit history**:
+the current text, every earlier version, and the original wording with when it was sent and replaced.
+
+![Edit history](assets/screenshots/message-edit-history.png)
+
+How Iris treats a change:
+
+- The edited text is checked again and search finds the new wording. The **verdict never improves because of
+  an edit**: a message that was harmful or in review keeps that verdict, so editing something into a harmless
+  sentence does not hide it. A message that becomes harmful through an edit raises a normal alert.
+- Content that was withheld (see the safety rule) is never copied into the history, and withholding a message
+  also clears its earlier versions.
+- With **Tell me when an alerted message is edited or deleted** on, an alert you already received gets a short
+  WhatsApp follow-up (the kid, chat, sender and a link). It never repeats the message text.
+- An edit or delete that reaches Iris before the original message was stored is ignored. WhatsApp does not say
+  what an edit replaced, so the history holds what Iris saw; the edit time is when Iris received it.
+
+| Phone | Dark mode |
+|---|---|
+| ![Edit history on a phone](assets/screenshots/phone-edit-history.png) | ![A deleted message in dark mode](assets/screenshots/message-revoked-dark.png) |
 
 ### Chats, instances, jobs
 

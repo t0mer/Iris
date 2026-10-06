@@ -111,7 +111,10 @@ export function MessageContext() {
               className={cn(
                 'flex max-w-[88%] flex-col gap-1 rounded-lg px-3.5 py-2.5 sm:max-w-[75%]',
                 m.from_me ? 'self-end bg-primary-soft' : 'self-start border bg-surface',
-                isTarget && 'ring-2 ring-primary',
+                isTarget &&
+                  (m.revoked_at
+                    ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface-2'
+                    : 'ring-2 ring-primary'),
                 revokedClass(m),
               )}
             >
