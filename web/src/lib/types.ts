@@ -144,3 +144,17 @@ export interface ThresholdRow {
   default_low: number
   default_high: number
 }
+
+export interface DayActivity {
+  date: string
+  safe: number
+  review: number
+  harmful: number
+  other: number
+  alerts: number
+}
+
+export interface Timeline {
+  timezone: string
+  days: DayActivity[]
+}

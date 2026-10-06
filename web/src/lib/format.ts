@@ -10,3 +10,9 @@ export function relativeTime(iso: string | null, now = Date.now()): string {
 export function dateTime(iso: string): string {
   return new Date(iso).toLocaleString()
 }
+
+/** "Oct 6" for a calendar date (YYYY-MM-DD), read as that local date, not shifted by time zone. */
+export function shortDate(isoDate: string): string {
+  const [y, m, d] = isoDate.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}

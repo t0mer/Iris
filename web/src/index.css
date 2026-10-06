@@ -27,6 +27,9 @@
   --success: #25735a;
   --success-soft: #dcf1e8;
   --mark: #ffe9a6;
+  --chart-safe: #3e9b7a;
+  --chart-review: #e9a23b;
+  --chart-harmful: #d9514e;
   --shadow: 0 10px 30px -12px rgb(20 18 43 / 0.35);
 }
 
@@ -50,6 +53,10 @@
   --success: #62c9a5;
   --success-soft: #173a31;
   --mark: #5c4a12;
+  /* validated against the dark surface with the dataviz palette checker */
+  --chart-safe: #33a07f;
+  --chart-review: #c58415;
+  --chart-harmful: #e25a74;
   --shadow: 0 10px 30px -12px rgb(0 0 0 / 0.7);
 }
 
@@ -123,7 +130,6 @@
   }
 }
 .iris-arc {
-  stroke-dasharray: var(--len);
   animation: iris-draw 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
