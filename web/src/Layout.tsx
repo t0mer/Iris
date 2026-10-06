@@ -1,9 +1,15 @@
 import { useQuery } from '@tanstack/react-query'
 import { NavLink, Outlet } from 'react-router-dom'
 import { api } from './lib/api'
+import { useState } from 'react'
 import { useLogout, useMe } from './lib/auth'
+import { getTheme, setTheme, type Theme } from './lib/theme'
+
+const NEXT: Record<Theme, Theme> = { system: 'light', light: 'dark', dark: 'system' }
+const LABEL: Record<Theme, string> = { system: 'System', light: 'Light', dark: 'Dark' }
 
 export function Layout() {
+  const [theme, setThemeState] = useState<Theme>(getTheme)
   const { data: me } = useMe()
   const logout = useLogout()
   const { data: v } = useQuery({
@@ -38,6 +44,16 @@ export function Layout() {
           ))}
         </nav>
         <span className="flex items-center gap-3 text-sm">
+          <button
+            className="rounded border px-2 py-0.5 text-xs"
+            aria-label={`Theme: ${LABEL[theme]}. Switch to ${LABEL[NEXT[theme]]}`}
+            onClick={() => {
+              setTheme(NEXT[theme])
+              setThemeState(NEXT[theme])
+            }}
+          >
+            {LABEL[theme]}
+          </button>
           {me?.username}
           <button className="underline" onClick={logout}>
             Sign out
