@@ -101,10 +101,6 @@ function DatabaseForm({ data }: { data: DatabaseStatus }) {
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not start the copy.'),
   })
 
-  if (status.isError)
-    return <QueryError what="the database settings" onRetry={() => void status.refetch()} />
-  if (!data || !form) return <Skeleton className="h-64" />
-
   const locked = data.env_override
   const set = (patch: Partial<Form>) => {
     setForm({ ...form, ...patch })
