@@ -8,7 +8,12 @@ export function relativeTime(iso: string | null, now = Date.now()): string {
 }
 
 export function dateTime(iso: string): string {
-  return new Date(iso).toLocaleString()
+  return new Date(iso).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
 }
 
 /** "Oct 6" for a calendar date (YYYY-MM-DD), read as that local date, not shifted by time zone. */

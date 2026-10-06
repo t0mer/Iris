@@ -1,141 +1,164 @@
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { CategoryChips } from '../components/Scores'
+import { BellRing, Settings } from 'lucide-react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { AlertRow } from '../components/AlertRow'
+import { EmptyState } from '../components/EmptyState'
+import { Chips, FilterBar } from '../components/FilterBar'
+import { PageHeader } from '../components/PageHeader'
+import { Pagination } from '../components/Pagination'
+import { Button } from '../components/ui/button'
+import { Field, Select } from '../components/ui/field'
+import { Skeleton } from '../components/ui/skeleton'
 import { api } from '../lib/api'
-import { dateTime } from '../lib/format'
+import { CATEGORIES } from '../lib/categories'
 import type { AlertPage, Instance } from '../lib/types'
 
-const STATUSES = ['new', 'acknowledged', 'dismissed']
-const input =
-  'rounded border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900'
+const STATUS = [
+  { value: '', label: 'All' },
+  { value: 'new', label: 'New' },
+  { value: 'acknowledged', label: 'Seen' },
+  { value: 'dismissed', label: 'Dismissed' },
+]
+const PAGE_SIZE = 25
 
 export function Alerts() {
-  const [filters, setFilters] = useState({ status: '', instance_id: '', category: '' })
-  const [page, setPage] = useState(1)
-  const params = new URLSearchParams({ page: String(page), page_size: '25' })
-  for (const [k, v] of Object.entries(filters)) if (v) params.set(k, v)
+  const [sp, setSp] = useSearchParams()
+  const status = sp.get('status') ?? ''
+  const kid = sp.get('instance_id') ?? ''
+  const category = sp.get('category') ?? ''
+  const page = Number(sp.get('page') ?? '1')
+  const update = (changes: Record<string, string>) => {
+    const next = new URLSearchParams(sp)
+    for (const [k, v] of Object.entries(changes)) {
+      if (v) next.set(k, v)
+      else next.delete(k)
+    }
+    if (!('page' in changes)) next.delete('page')
+    setSp(next, { replace: true })
+  }
+
+  const params = new URLSearchParams({ page: String(page), page_size: String(PAGE_SIZE) })
+  for (const [k, v] of [
+    ['status', status],
+    ['instance_id', kid],
+    ['category', category],
+  ])
+    if (v) params.set(k, v)
 
   const { data: instances } = useQuery({
     queryKey: ['instances'],
     queryFn: () => api<Instance[]>('/api/instances'),
   })
-  const { data } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['alerts', params.toString()],
     queryFn: () => api<AlertPage>(`/api/alerts?${params}`),
   })
   const notConfigured = data?.items.some(
     (a) => a.delivery_error === 'alert delivery not configured',
   )
-  const set = (k: keyof typeof filters) => (v: string) => {
-    setFilters((f) => ({ ...f, [k]: v }))
-    setPage(1)
-  }
-  const pages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1
+  const active = [kid, category].filter(Boolean).length + (status ? 1 : 0)
 
   return (
-    <div className="flex flex-col gap-4">
-      <h1 className="text-xl font-semibold">Alerts</h1>
+    <div className="flex flex-col gap-5">
+      <PageHeader title="Alerts" description="Messages Iris judged harmful, newest first." />
+
       {notConfigured && (
         <p
-          role="alert"
-          className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100"
+          role="status"
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-warning-soft p-3 text-sm text-warning"
         >
-          Alert delivery is not configured, so alerts are recorded here but not sent.{' '}
-          <Link to="/settings" className="underline">
-            Set up the sender and recipient
-          </Link>
-          .
+          Alert delivery is not set up, so alerts are saved here but not sent to your WhatsApp.
+          <Button asChild variant="link" size="sm" className="h-auto min-h-0 p-0">
+            <Link to="/settings">
+              <Settings /> Set up delivery
+            </Link>
+          </Button>
         </p>
       )}
-      <div className="flex flex-wrap gap-2">
-        <select
-          className={input}
-          aria-label="Status"
-          value={filters.status}
-          onChange={(e) => set('status')(e.target.value)}
-        >
-          <option value="">Any status</option>
-          {STATUSES.map((s) => (
-            <option key={s}>{s}</option>
+
+      <FilterBar
+        active={active}
+        onClear={() => setSp(new URLSearchParams(), { replace: true })}
+        leading={
+          <Chips
+            label="Status"
+            value={status}
+            options={STATUS}
+            onChange={(v) => update({ status: v })}
+          />
+        }
+      >
+        <Field label="Phone" className="md:w-44">
+          <Select value={kid} onChange={(e) => update({ instance_id: e.target.value })}>
+            <option value="">All phones</option>
+            {instances?.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.kid_name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Category" className="md:w-52">
+          <Select value={category} onChange={(e) => update({ category: e.target.value })}>
+            <option value="">Any category</option>
+            {CATEGORIES.map((c) => (
+              <option key={c}>{c}</option>
+            ))}
+          </Select>
+        </Field>
+      </FilterBar>
+
+      <ul className="divide-y overflow-hidden rounded-lg border bg-surface" aria-busy={isLoading}>
+        {isLoading &&
+          Array.from({ length: 4 }, (_, i) => (
+            <li key={i} className="p-4">
+              <Skeleton className="h-16" />
+            </li>
           ))}
-        </select>
-        <select
-          className={input}
-          aria-label="Kid"
-          value={filters.instance_id}
-          onChange={(e) => set('instance_id')(e.target.value)}
-        >
-          <option value="">All kids</option>
-          {instances?.map((i) => (
-            <option key={i.id} value={i.id}>
-              {i.kid_name}
-            </option>
-          ))}
-        </select>
-        <input
-          className={input}
-          placeholder="Category (e.g. violence)"
-          value={filters.category}
-          onChange={(e) => set('category')(e.target.value)}
-        />
-      </div>
-      <ul className="divide-y divide-slate-200 rounded border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
-        {data?.items.map((a) => (
-          <li key={a.id}>
-            <Link
-              to={`/alerts/${a.id}`}
-              className="flex flex-col gap-1 p-3 hover:bg-slate-50 dark:hover:bg-slate-900"
-            >
-              <span className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                <span>{dateTime(a.created_at)}</span>
-                <span>{a.kid_names.join(', ')}</span>
-                <span>· {a.chat_name ?? 'chat'}</span>
-                <span>· {a.sender_name ?? '?'}</span>
-                <CategoryChips categories={a.categories} score={a.max_score} />
-                <span className="rounded bg-slate-100 px-2 py-0.5 dark:bg-slate-800">
-                  {a.status}
-                </span>
-                <span
-                  className={`rounded px-2 py-0.5 ${a.delivery_status === 'failed' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100' : 'bg-slate-100 dark:bg-slate-800'}`}
-                  title={a.delivery_error ?? undefined}
-                >
-                  {a.delivery_status}
-                </span>
-              </span>
-              <span className="text-sm" dir="auto">
-                {a.redacted ? (
-                  <em className="text-slate-500">Content withheld (sexual content)</em>
-                ) : (
-                  (a.quote ?? '')
-                )}
-              </span>
-            </Link>
+        {isError && (
+          <li className="p-4 text-sm text-danger" role="alert">
+            Could not load alerts. Reload the page; if it keeps failing, check the Jobs page and the
+            server log.
           </li>
+        )}
+        {data?.items.map((a) => (
+          <AlertRow key={a.id} alert={a} />
         ))}
         {data && data.items.length === 0 && (
-          <li className="p-4 text-sm text-slate-500">No alerts.</li>
+          <li>
+            {active > 0 ? (
+              <EmptyState
+                icon={BellRing}
+                title="No alerts match these filters"
+                action={
+                  <Button
+                    variant="outline"
+                    onClick={() => setSp(new URLSearchParams(), { replace: true })}
+                  >
+                    Clear filters
+                  </Button>
+                }
+              >
+                Try a different status, phone or category.
+              </EmptyState>
+            ) : (
+              <EmptyState icon={BellRing} title="No alerts yet">
+                When a message needs your attention, Iris lists it here and sends it to your
+                WhatsApp.
+              </EmptyState>
+            )}
+          </li>
         )}
       </ul>
-      <div className="flex items-center gap-3 text-sm">
-        <button
-          className="rounded border px-2 py-1 disabled:opacity-40"
-          disabled={page <= 1}
-          onClick={() => setPage(page - 1)}
-        >
-          Prev
-        </button>
-        <span>
-          Page {page} of {pages} ({data?.total ?? 0} alerts)
-        </span>
-        <button
-          className="rounded border px-2 py-1 disabled:opacity-40"
-          disabled={page >= pages}
-          onClick={() => setPage(page + 1)}
-        >
-          Next
-        </button>
-      </div>
+      {data && (
+        <Pagination
+          page={page}
+          pageSize={PAGE_SIZE}
+          total={data.total}
+          noun={['alert', 'alerts']}
+          onPage={(p) => update({ page: String(p) })}
+        />
+      )}
     </div>
   )
 }

@@ -22,7 +22,7 @@ export function Highlight({ snippet }: { snippet: string }) {
     <span dir="auto">
       {parts.map((p, i) =>
         p.hit ? (
-          <mark key={i} className="rounded bg-yellow-200 px-0.5 dark:bg-yellow-700 dark:text-white">
+          <mark key={i} className="rounded-sm bg-mark px-0.5 text-foreground">
             {p.text}
           </mark>
         ) : (

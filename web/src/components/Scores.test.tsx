@@ -12,7 +12,10 @@ test('shows scores sorted high to low, hides tiny ones and the _meta entry', () 
 })
 
 test('chips show the top score only on the first category', () => {
-  render(<CategoryChips categories={['violence', 'harassment']} score={0.944} />)
-  expect(screen.getByText('violence 0.94')).toBeInTheDocument()
-  expect(screen.getByText('harassment')).toBeInTheDocument()
+  const { container } = render(
+    <CategoryChips categories={['violence', 'harassment']} score={0.944} />,
+  )
+  expect(container).toHaveTextContent('violence 0.94')
+  expect(container).toHaveTextContent('harassment')
+  expect(container).not.toHaveTextContent('harassment 0.')
 })

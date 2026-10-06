@@ -1,187 +1,236 @@
 import { useQuery } from '@tanstack/react-query'
+import { Search, SearchX } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { EmptyState } from '../components/EmptyState'
+import { Chips, FilterBar } from '../components/FilterBar'
 import { Highlight } from '../components/Highlight'
+import { KidStack } from '../components/KidAvatar'
 import { Failure, MessageBody, VerdictBadge } from '../components/MessageBody'
-import { typeIcon } from '../lib/icons'
+import { PageHeader } from '../components/PageHeader'
+import { Pagination } from '../components/Pagination'
+import { TypeIcon } from '../components/TypeIcon'
+import { Button } from '../components/ui/button'
+import { Field, Input, Select } from '../components/ui/field'
+import { Skeleton } from '../components/ui/skeleton'
 import { api } from '../lib/api'
 import { dateTime } from '../lib/format'
 import type { Instance, MessagePage } from '../lib/types'
 
 const TYPES = ['text', 'image', 'audio', 'voice', 'video', 'sticker', 'document', 'other']
-const VERDICTS = ['safe', 'harmful', 'review', 'none']
+const VERDICTS = [
+  { value: 'harmful', label: 'Harmful' },
+  { value: 'review', label: 'Needs review' },
+  { value: 'safe', label: 'Safe' },
+  { value: 'none', label: 'Not checked' },
+]
+const WHEN = [
+  { value: '', label: 'Any time' },
+  { value: 'today', label: 'Today' },
+  { value: '7d', label: '7 days' },
+  { value: '30d', label: '30 days' },
+]
+const PAGE_SIZE = 25
+
+function since(when: string): string | null {
+  const now = new Date()
+  if (when === 'today')
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
+  const days = when === '7d' ? 7 : when === '30d' ? 30 : 0
+  return days ? new Date(now.getTime() - days * 86_400_000).toISOString() : null
+}
 
 export function Messages() {
-  const [q, setQ] = useState('')
-  const [debouncedQ, setDebouncedQ] = useState('')
-  const [filters, setFilters] = useState({
-    instance_id: '',
-    type: '',
-    verdict: '',
-    sender: '',
-    from: '',
-    to: '',
-  })
-  const [page, setPage] = useState(1)
-  const [searchParams] = useSearchParams()
-  const chatId = searchParams.get('chat')
+  const [sp, setSp] = useSearchParams()
+  const get = (k: string) => sp.get(k) ?? ''
+  const page = Number(sp.get('page') ?? '1')
+  const update = (changes: Record<string, string>) => {
+    const next = new URLSearchParams(sp)
+    for (const [k, v] of Object.entries(changes)) {
+      if (v) next.set(k, v)
+      else next.delete(k)
+    }
+    if (!('page' in changes)) next.delete('page')
+    setSp(next, { replace: true })
+  }
 
+  // The search box edits locally and reaches the URL (and the server) after a short pause.
+  const [q, setQ] = useState(get('q'))
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedQ(q), 300)
+    const t = setTimeout(() => get('q') !== q && update({ q }), 300)
     return () => clearTimeout(t)
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [q])
 
-  const params = new URLSearchParams({ page: String(page), page_size: '25' })
-  if (debouncedQ) params.set('q', debouncedQ)
-  if (chatId) params.set('chat_id', chatId)
-  for (const [k, v] of Object.entries(filters)) {
-    if (!v) continue
-    params.set(k, k === 'from' || k === 'to' ? new Date(v).toISOString() : v)
-  }
+  const params = new URLSearchParams({ page: String(page), page_size: String(PAGE_SIZE) })
+  for (const k of ['q', 'instance_id', 'type', 'verdict', 'sender'])
+    if (get(k)) params.set(k, get(k))
+  if (get('chat')) params.set('chat_id', get('chat'))
+  const from = since(get('when'))
+  if (from) params.set('from', from)
 
   const { data: instances } = useQuery({
     queryKey: ['instances'],
     queryFn: () => api<Instance[]>('/api/instances'),
   })
-  const { data, isFetching, error } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['messages', params.toString()],
     queryFn: () => api<MessagePage>(`/api/messages?${params}`),
   })
-
-  const set = (k: keyof typeof filters) => (v: string) => {
-    setFilters((f) => ({ ...f, [k]: v }))
-    setPage(1)
-  }
-  const input =
-    'rounded border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900'
-  const pages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1
+  const active =
+    ['instance_id', 'type', 'verdict', 'sender', 'chat', 'when'].filter((k) => get(k)).length +
+    (get('q') ? 1 : 0)
 
   return (
-    <div className="flex flex-col gap-4">
-      <h1 className="text-xl font-semibold">Messages</h1>
-      <div className="flex flex-wrap gap-2">
-        <input
-          className={`${input} min-w-48 flex-1`}
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        title="Messages"
+        description="Everything Iris has seen. Search covers messages and voice-note transcripts, in Hebrew and English."
+      />
+
+      <div className="relative">
+        <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          type="search"
           dir="auto"
-          placeholder="Search text and transcripts…"
+          aria-label="Search messages"
+          placeholder="Search words, names or transcripts"
+          className="min-h-11 ps-9"
           value={q}
-          onChange={(e) => {
-            setQ(e.target.value)
-            setPage(1)
-          }}
-        />
-        <select
-          className={input}
-          aria-label="Kid"
-          value={filters.instance_id}
-          onChange={(e) => set('instance_id')(e.target.value)}
-        >
-          <option value="">All kids</option>
-          {instances?.map((i) => (
-            <option key={i.id} value={i.id}>
-              {i.kid_name}
-            </option>
-          ))}
-        </select>
-        <select
-          className={input}
-          aria-label="Type"
-          value={filters.type}
-          onChange={(e) => set('type')(e.target.value)}
-        >
-          <option value="">All types</option>
-          {TYPES.map((t) => (
-            <option key={t}>{t}</option>
-          ))}
-        </select>
-        <select
-          className={input}
-          aria-label="Verdict"
-          value={filters.verdict}
-          onChange={(e) => set('verdict')(e.target.value)}
-        >
-          <option value="">Any verdict</option>
-          {VERDICTS.map((v) => (
-            <option key={v} value={v}>
-              {v === 'none' ? 'pending' : v}
-            </option>
-          ))}
-        </select>
-        <input
-          className={input}
-          dir="auto"
-          placeholder="Sender"
-          value={filters.sender}
-          onChange={(e) => set('sender')(e.target.value)}
-        />
-        <input
-          className={input}
-          type="datetime-local"
-          aria-label="From"
-          value={filters.from}
-          onChange={(e) => set('from')(e.target.value)}
-        />
-        <input
-          className={input}
-          type="datetime-local"
-          aria-label="To"
-          value={filters.to}
-          onChange={(e) => set('to')(e.target.value)}
+          onChange={(e) => setQ(e.target.value)}
         />
       </div>
-      {error && (
-        <p role="alert" className="text-sm text-red-600">
-          {String(error.message)}
-        </p>
-      )}
-      <ul className="divide-y divide-slate-200 rounded border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
+
+      <FilterBar
+        active={active}
+        onClear={() => {
+          setQ('')
+          setSp(new URLSearchParams(), { replace: true })
+        }}
+        leading={
+          <Chips
+            label="When"
+            value={get('when')}
+            options={WHEN}
+            onChange={(v) => update({ when: v })}
+          />
+        }
+      >
+        <Field label="Phone" className="md:w-40">
+          <Select
+            value={get('instance_id')}
+            onChange={(e) => update({ instance_id: e.target.value })}
+          >
+            <option value="">All phones</option>
+            {instances?.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.kid_name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Type" className="md:w-36">
+          <Select value={get('type')} onChange={(e) => update({ type: e.target.value })}>
+            <option value="">All types</option>
+            {TYPES.map((t) => (
+              <option key={t}>{t}</option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Verdict" className="md:w-40">
+          <Select value={get('verdict')} onChange={(e) => update({ verdict: e.target.value })}>
+            <option value="">Any verdict</option>
+            {VERDICTS.map((v) => (
+              <option key={v.value} value={v.value}>
+                {v.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Sender" className="md:w-40">
+          <Input
+            dir="auto"
+            value={get('sender')}
+            onChange={(e) => update({ sender: e.target.value })}
+          />
+        </Field>
+      </FilterBar>
+
+      <ul className="divide-y overflow-hidden rounded-lg border bg-surface" aria-busy={isLoading}>
+        {isLoading &&
+          Array.from({ length: 5 }, (_, i) => (
+            <li key={i} className="p-4">
+              <Skeleton className="h-12" />
+            </li>
+          ))}
+        {isError && (
+          <li role="alert" className="p-4 text-sm text-danger">
+            Could not load messages. Reload the page; if it keeps failing, check the Jobs page.
+          </li>
+        )}
         {data?.items.map((m) => (
           <li key={m.id}>
             <Link
               to={`/messages/${m.id}`}
-              className="flex flex-col gap-1 p-3 hover:bg-slate-50 dark:hover:bg-slate-900"
+              className="flex flex-col gap-1.5 px-4 py-3.5 hover:bg-surface-2/60"
             >
-              <span className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                <span>{typeIcon(m.type)}</span>
-                <span>{dateTime(m.sent_at)}</span>
-                <span>{m.kids.map((k) => k.kid_name).join(', ')}</span>
-                <span>· {m.chat_name ?? (m.is_group ? 'group' : 'chat')}</span>
-                <span>
-                  · {m.sender_name ?? '?'}
-                  {m.from_me ? ' (kid)' : ''}
+              <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <KidStack names={m.kids.map((k) => k.kid_name)} />
+                <span className="font-medium">{m.kids.map((k) => k.kid_name).join(' and ')}</span>
+                <span className="text-sm text-muted-foreground">
+                  {m.chat_name ?? (m.is_group ? 'a group' : 'a chat')}
+                  {m.sender_name ? `, ${m.sender_name}` : ''}
+                </span>
+                <span className="ms-auto text-xs text-muted-foreground">{dateTime(m.sent_at)}</span>
+              </span>
+              <span className="flex items-start gap-2">
+                <span className="mt-1 text-muted-foreground">
+                  <TypeIcon type={m.type} />
+                </span>
+                <span className="line-clamp-2 min-w-0 flex-1 break-words text-[15px]" dir="auto">
+                  {m.snippet ? <Highlight snippet={m.snippet} /> : <MessageBody m={m} />}
                 </span>
                 <VerdictBadge m={m} />
-              </span>
-              <span className="text-sm">
-                {m.snippet ? <Highlight snippet={m.snippet} /> : <MessageBody m={m} />}
               </span>
               <Failure m={m} />
             </Link>
           </li>
         ))}
         {data && data.items.length === 0 && (
-          <li className="p-4 text-sm text-slate-500">No messages.</li>
+          <li>
+            <EmptyState
+              icon={SearchX}
+              title={active > 0 ? 'No messages match' : 'No messages yet'}
+              action={
+                active > 0 ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setQ('')
+                      setSp(new URLSearchParams(), { replace: true })
+                    }}
+                  >
+                    Clear search and filters
+                  </Button>
+                ) : undefined
+              }
+            >
+              {active > 0
+                ? 'Try fewer words or remove a filter.'
+                : 'Messages appear here a few seconds after a phone receives or sends them.'}
+            </EmptyState>
+          </li>
         )}
       </ul>
-      <div className="flex items-center gap-3 text-sm">
-        <button
-          className="rounded border px-2 py-1 disabled:opacity-40"
-          disabled={page <= 1}
-          onClick={() => setPage(page - 1)}
-        >
-          Prev
-        </button>
-        <span>
-          Page {page} of {pages} ({data?.total ?? 0} messages){isFetching ? ' …' : ''}
-        </span>
-        <button
-          className="rounded border px-2 py-1 disabled:opacity-40"
-          disabled={page >= pages}
-          onClick={() => setPage(page + 1)}
-        >
-          Next
-        </button>
-      </div>
+      {data && (
+        <Pagination
+          page={page}
+          pageSize={PAGE_SIZE}
+          total={data.total}
+          noun={['message', 'messages']}
+          onPage={(p) => update({ page: String(p) })}
+        />
+      )}
     </div>
   )
 }
