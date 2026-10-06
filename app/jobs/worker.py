@@ -7,14 +7,18 @@ from collections.abc import Awaitable, Callable
 from loguru import logger
 from sqlalchemy.exc import OperationalError
 
-from app.alerts.delivery import deliver_alert
+from app.alerts.delivery import deliver_alert, notify_change
 from app.chats import resolve_group_names
 from app.jobs import queue
 from app.jobs.handlers import Deps, process_message
 from app.jobs.queue import ClaimedJob, PermanentError, TransientError
 
 Handler = Callable[[ClaimedJob, Deps], Awaitable[None]]
-HANDLERS: dict[str, Handler] = {"process_message": process_message, "deliver_alert": deliver_alert}
+HANDLERS: dict[str, Handler] = {
+    "process_message": process_message,
+    "deliver_alert": deliver_alert,
+    "notify_change": notify_change,
+}
 
 
 async def run_one(job: ClaimedJob, deps: Deps, handlers: dict[str, Handler] = HANDLERS) -> str:

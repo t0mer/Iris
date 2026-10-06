@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 from sqlalchemy import Select, func, select
 
-from app.alerts.format import AlertFacts, format_alert
+from app.alerts.format import AlertFacts, format_alert, format_change_notice
 from app.db.models import Alert, Chat, Instance, Message
 from app.jobs.queue import ClaimedJob, PermanentError, TransientError
 from app.metrics import ALERTS
@@ -149,3 +149,39 @@ async def _deliver(job: ClaimedJob, deps: "Deps") -> None:
         await db.commit()
         ALERTS.labels(_top(alert), "sent").inc()
         logger.info("alert {} delivered", alert.id)
+
+
+async def notify_change(job: ClaimedJob, deps: "Deps") -> None:
+    """Tell the parent that the message of an already delivered alert was edited or deleted."""
+    alert_id, kind = job.payload.get("alert_id"), job.payload.get("kind")
+    if not isinstance(alert_id, int) or kind not in ("edited", "revoked"):
+        raise PermanentError("job payload has no alert_id or kind")
+    async with _DELIVERY_LOCK, deps.session_factory() as db:
+        alert = await db.get(Alert, alert_id)
+        if alert is None:
+            raise PermanentError("alert no longer exists")
+        message = await db.get(Message, alert.message_id)
+        if message is None:
+            raise PermanentError("alert's message no longer exists")
+        chat = await db.get(Chat, message.chat_id)
+        sender_id = await get_setting(db, "alerts.sender_instance_id")
+        recipient = await get_setting(db, "alerts.recipient")
+        sender = await db.get(Instance, sender_id) if sender_id else None
+        if not recipient or sender is None or not sender.openwa_api_key_enc:
+            raise PermanentError("alert delivery not configured")
+        timezone = str(await get_setting(db, "alerts.timezone"))
+        text = format_change_notice(
+            kind, build_facts(alert, message, chat), timezone, deps.public_base_url, deps.key_bytes
+        )
+        client = OpenWAClient(
+            sender.openwa_base_url, decrypt(deps.key_bytes, sender.openwa_api_key_enc)
+        )
+        try:
+            await client.send_text(sender.openwa_instance_id, recipient_chat_id(recipient), text)
+        except OpenWAError as exc:
+            if exc.status is None or exc.status >= 500 or exc.status == 429:
+                raise TransientError(f"follow-up delivery failed: {exc.message}") from exc
+            raise PermanentError(f"follow-up delivery rejected: {exc.message}") from exc
+        finally:
+            await client.aclose()
+        logger.info("alert {} follow-up ({}) delivered", alert.id, kind)

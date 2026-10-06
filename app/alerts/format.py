@@ -95,3 +95,28 @@ def format_alert(f: AlertFacts, timezone: str, base_url: str, key: bytes) -> str
     if f.more_suppressed:
         lines += ["", f"+{f.more_suppressed} more alerts in this chat since last notification"]
     return with_signed_link("\n".join(lines), base_url, key, f.alert_id)
+
+
+CHANGE_TEXT = {
+    "edited": "was edited by the sender",
+    "revoked": "was deleted for everyone by the sender",
+}
+
+
+def format_change_notice(kind: str, f: AlertFacts, timezone: str, base_url: str, key: bytes) -> str:
+    """Follow-up after an alerted message changed. It never quotes content, so it is safe for
+    redacted alerts too; the signed link opens the alert, where the portal shows the history."""
+    when = f.sent_at
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=ZoneInfo("UTC"))
+    local = when.astimezone(ZoneInfo(timezone))
+    sender = (f.sender_name or "?") + (" (your kid)" if f.from_me else "")
+    lines = [
+        ALERT_PREFIX,
+        f"Update: the message from alert #{f.alert_id} {CHANGE_TEXT[kind]}.",
+        f"Kid: {', '.join(f.kid_names)}",
+        f"Chat: {f.chat_name or '?'} ({'group' if f.is_group else 'direct'})",
+        f"From: {sender}",
+        f"Time: {local.strftime('%d/%m %H:%M')}",
+    ]
+    return with_signed_link("\n".join(lines), base_url, key, f.alert_id)
