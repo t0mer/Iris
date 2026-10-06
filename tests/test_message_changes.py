@@ -180,3 +180,95 @@ async def test_no_follow_up_for_a_suppressed_alert_or_when_switched_off(app_clie
     payload["data"]["body"] = "changed"
     await post(app_client, token, json.dumps(payload).encode())
     assert await _jobs(app_client, "notify_change") == []
+
+
+async def _classify(c: Any, deps: Any) -> list[str]:
+    from tests.test_worker import drain
+
+    return await drain(deps)
+
+
+async def test_editing_a_harmful_message_into_a_harmless_one_keeps_the_verdict(
+    app_client: Any,
+) -> None:
+    import respx
+
+    from app.classify.moderation import URL
+    from tests.test_worker import mod_response, setup
+
+    deps, token = await setup(app_client)
+    with respx.mock:
+        respx.post(URL).mock(
+            side_effect=[mod_response(violence=0.95), mod_response(), mod_response()]
+        )
+        await post(app_client, token, fx(SENT))
+        await _classify(app_client, deps)
+        assert (await _message(app_client)).verdict == "harmful"
+        await post(app_client, token, fx("message_edited"))
+        await _classify(app_client, deps)
+    m = await _message(app_client)
+    assert m.verdict == "harmful" and m.status == "done" and m.edited_at is not None
+    await deps.providers.aclose()
+
+
+async def test_a_harmless_message_edited_into_a_harmful_one_is_flagged(app_client: Any) -> None:
+    import respx
+
+    from app.classify.moderation import URL
+    from tests.test_worker import mod_response, setup
+
+    deps, token = await setup(app_client)
+    with respx.mock:
+        respx.post(URL).mock(side_effect=[mod_response(), mod_response(violence=0.95)])
+        await post(app_client, token, fx(SENT))
+        await _classify(app_client, deps)
+        assert (await _message(app_client)).verdict == "safe"
+        await post(app_client, token, fx("message_edited"))
+        await _classify(app_client, deps)
+    async with app_client.app.state.session_factory() as s:
+        assert (await s.execute(select(Alert))).scalar_one().max_score >= 0.9
+    assert (await _message(app_client)).verdict == "harmful"
+    await deps.providers.aclose()
+
+
+async def test_redaction_after_an_edit_wipes_the_history(app_client: Any) -> None:
+    import respx
+
+    from app.classify.moderation import URL
+    from tests.test_worker import mod_response, setup
+
+    deps, token = await setup(app_client)
+    with respx.mock:
+        respx.post(URL).mock(side_effect=[mod_response(), mod_response(**{"sexual/minors": 0.9})])
+        await post(app_client, token, fx(SENT))
+        await _classify(app_client, deps)
+        await post(app_client, token, fx("message_edited"))
+        await _classify(app_client, deps)
+    m = await _message(app_client)
+    async with app_client.app.state.session_factory() as s:
+        n = (await s.execute(select(func.count()).select_from(MessageRevision))).scalar_one()
+    assert m.redacted and m.text == "[redacted]" and n == 0
+    await deps.providers.aclose()
+
+
+async def test_a_second_check_waits_while_the_first_is_running(app_client: Any) -> None:
+    import pytest
+
+    from app.db.models import Job as JobModel
+    from app.jobs import queue
+    from app.jobs.handlers import process_message
+    from app.jobs.queue import ClaimedJob, TransientError
+    from tests.test_worker import setup
+
+    deps, token = await setup(app_client)
+    await post(app_client, token, fx(SENT))
+    m = await _message(app_client)
+    async with app_client.app.state.session_factory() as s:
+        s.add(JobModel(type="process_message", payload={"message_id": m.id}, status="running"))
+        await s.commit()
+    first = await queue.claim(deps.session_factory)
+    assert first is not None
+    assert isinstance(first, ClaimedJob)
+    with pytest.raises(TransientError):
+        await process_message(first, deps)
+    await deps.providers.aclose()
