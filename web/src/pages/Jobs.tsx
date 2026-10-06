@@ -1,55 +1,86 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { CheckCircle2, CircleAlert, RotateCw } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
+import { EmptyState } from '../components/EmptyState'
+import { PageHeader } from '../components/PageHeader'
+import { Badge } from '../components/ui/badge'
+import { Button } from '../components/ui/button'
+import { Skeleton } from '../components/ui/skeleton'
 import { api, ApiError } from '../lib/api'
-import { dateTime } from '../lib/format'
+import { relativeTime } from '../lib/format'
 import type { Job } from '../lib/types'
+
+const WHAT: Record<string, string> = {
+  process_message: 'Checking a message',
+  deliver_alert: 'Sending an alert',
+}
 
 export function Jobs() {
   const qc = useQueryClient()
-  const { data } = useQuery({ queryKey: ['jobs'], queryFn: () => api<Job[]>('/api/jobs') })
+  const { data, isLoading } = useQuery({
+    queryKey: ['jobs'],
+    queryFn: () => api<Job[]>('/api/jobs'),
+    refetchInterval: 60_000,
+  })
   const retry = useMutation({
     mutationFn: (id: number) => api(`/api/jobs/${id}/retry`, { method: 'POST' }),
-    onSuccess: () => qc.invalidateQueries(),
+    onSuccess: () => {
+      toast.success('Trying again.')
+      return qc.invalidateQueries()
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not retry the job.'),
   })
   return (
-    <div className="flex max-w-4xl flex-col gap-4">
-      <h1 className="text-xl font-semibold">Jobs</h1>
-      <p className="text-sm text-slate-500">Jobs that failed or ran out of attempts.</p>
-      {retry.error && (
-        <p role="alert" className="text-sm text-red-600">
-          {retry.error instanceof ApiError ? retry.error.message : 'Retry failed'}
-        </p>
-      )}
-      <ul className="divide-y divide-slate-200 rounded border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
+    <div className="flex max-w-4xl flex-col gap-5">
+      <PageHeader
+        title="Jobs"
+        description="Work that failed or ran out of attempts. Fix the cause shown, then try again."
+      />
+      {isLoading && <Skeleton className="h-32" />}
+      <ul className="divide-y overflow-hidden rounded-lg border bg-surface">
         {data?.map((j) => (
-          <li key={j.id} className="flex flex-col gap-1 p-3 text-sm">
-            <span className="flex flex-wrap items-center gap-2">
-              <strong>#{j.id}</strong>
-              <span>{j.type}</span>
-              <span className="rounded bg-red-100 px-2 py-0.5 text-xs text-red-800 dark:bg-red-900 dark:text-red-100">
-                {j.status}
+          <li key={j.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3.5">
+            <span className="flex min-w-0 flex-1 basis-64 flex-col gap-1">
+              <span className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">{WHAT[j.type] ?? j.type}</span>
+                <Badge tone="danger">
+                  <CircleAlert /> {j.status}
+                </Badge>
+                <span className="text-xs text-muted-foreground">
+                  attempt {j.attempts} of {j.max_attempts}, {relativeTime(j.created_at)}
+                </span>
               </span>
-              <span className="text-xs text-slate-500">
-                attempt {j.attempts}/{j.max_attempts} · {dateTime(j.created_at)}
-              </span>
+              {j.last_error && (
+                <span className="break-words text-sm text-danger">{j.last_error}</span>
+              )}
               {j.message_id && (
-                <Link to={`/messages/${j.message_id}`} className="text-xs underline">
-                  message
+                <Link
+                  to={`/messages/${j.message_id}`}
+                  className="w-fit text-sm font-medium text-primary hover:underline"
+                >
+                  See the message
                 </Link>
               )}
             </span>
-            {j.last_error && (
-              <span className="text-xs text-red-600 dark:text-red-400">⚠ {j.last_error}</span>
-            )}
-            <button
-              className="self-start rounded border px-2 py-1 text-xs"
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={retry.isPending}
               onClick={() => retry.mutate(j.id)}
             >
-              Retry
-            </button>
+              <RotateCw /> Retry
+            </Button>
           </li>
         ))}
-        {data?.length === 0 && <li className="p-3 text-sm text-slate-500">No failed jobs.</li>}
+        {data?.length === 0 && (
+          <li>
+            <EmptyState icon={CheckCircle2} title="No failed jobs">
+              If a message cannot be checked or an alert cannot be sent, it appears here with the
+              reason.
+            </EmptyState>
+          </li>
+        )}
       </ul>
     </div>
   )

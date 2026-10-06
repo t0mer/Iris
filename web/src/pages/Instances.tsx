@@ -1,100 +1,154 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Copy, Link2, Plus, RefreshCw, Smartphone, Trash2 } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
+import { toast } from 'sonner'
+import { EmptyState } from '../components/EmptyState'
+import { KidAvatar } from '../components/KidAvatar'
+import { PageHeader } from '../components/PageHeader'
+import { Badge } from '../components/ui/badge'
+import { Button } from '../components/ui/button'
+import { ConfirmDialog, Dialog, DialogContent, DialogTrigger } from '../components/ui/dialog'
+import { Field, Input } from '../components/ui/field'
+import { Skeleton } from '../components/ui/skeleton'
+import { Switch } from '../components/ui/switch'
 import { api, ApiError } from '../lib/api'
 import { relativeTime } from '../lib/format'
 import type { Instance } from '../lib/types'
 
-const input =
-  'rounded border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900'
+const fail = (fallback: string) => (e: unknown) =>
+  toast.error(e instanceof ApiError ? e.message : fallback)
 
-function Row({ i }: { i: Instance }) {
+function PhoneCard({ i }: { i: Instance }) {
   const qc = useQueryClient()
-  const [msg, setMsg] = useState<string | null>(null)
   const refresh = () => qc.invalidateQueries({ queryKey: ['instances'] })
-  const act = useMutation({
-    mutationFn: async (fn: () => Promise<unknown>) => fn(),
-    onSuccess: refresh,
-    onError: (e) => setMsg(e instanceof ApiError ? e.message : 'Failed'),
+  const register = useMutation({
+    mutationFn: () => api(`/api/instances/${i.id}/register-webhook`, { method: 'POST' }),
+    onSuccess: () => {
+      toast.success(`Webhook registered in OpenWA for ${i.kid_name}.`)
+      return refresh()
+    },
+    onError: fail('Could not register the webhook.'),
   })
-  const post = (path: string) => () => api(`/api/instances/${i.id}/${path}`, { method: 'POST' })
+  const rotate = useMutation({
+    mutationFn: () => api(`/api/instances/${i.id}/rotate-token`, { method: 'POST' }),
+    onSuccess: () => {
+      toast.success('New webhook address created. Register it in OpenWA again.')
+      return refresh()
+    },
+    onError: fail('Could not rotate the token.'),
+  })
+  const toggle = useMutation({
+    mutationFn: (enabled: boolean) =>
+      api(`/api/instances/${i.id}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
+    onSuccess: (_d, enabled) => {
+      toast.success(enabled ? `Watching ${i.kid_name} again.` : `Paused watching ${i.kid_name}.`)
+      return refresh()
+    },
+    onError: fail('Could not change this phone.'),
+  })
+  const remove = useMutation({
+    mutationFn: () => api(`/api/instances/${i.id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      toast.success(`${i.kid_name} removed.`)
+      return refresh()
+    },
+    onError: fail('Could not remove this phone.'),
+  })
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(i.webhook_url)
+      toast.success('Webhook address copied.')
+    } catch {
+      toast.error('Could not copy. Select the address and copy it by hand.')
+    }
+  }
   return (
-    <li className="flex flex-col gap-2 p-3">
+    <li className="flex flex-col gap-4 rounded-lg border bg-surface p-4 sm:p-5">
       <div className="flex flex-wrap items-center gap-3">
-        <strong>{i.kid_name}</strong>
-        <span className="text-xs text-slate-500">
-          {i.openwa_base_url} · {i.openwa_instance_id.slice(0, 8)}…
-        </span>
-        <span className="text-xs">Last webhook: {relativeTime(i.last_webhook_at)}</span>
-        {!i.enabled && (
-          <span className="rounded bg-slate-200 px-2 text-xs dark:bg-slate-700">disabled</span>
+        <KidAvatar name={i.kid_name} className="size-10 text-base" />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="text-lg font-semibold">{i.kid_name}</span>
+          <span className="truncate text-sm text-muted-foreground">
+            {i.openwa_base_url}, session {i.openwa_instance_id.slice(0, 8)}
+          </span>
+        </div>
+        <label className="flex items-center gap-2 text-sm font-medium">
+          {i.enabled ? 'Watching' : 'Paused'}
+          <Switch
+            checked={i.enabled}
+            onCheckedChange={(v) => toggle.mutate(v)}
+            aria-label={`Watch ${i.kid_name}`}
+          />
+        </label>
+      </div>
+      <p className="text-sm">
+        {i.last_webhook_at ? (
+          <>
+            Last message received <strong>{relativeTime(i.last_webhook_at)}</strong>.
+          </>
+        ) : (
+          <Badge tone="warning">Nothing received yet</Badge>
         )}
+        {!i.last_webhook_at && (
+          <span className="ms-2 text-muted-foreground">
+            Register the webhook below, then send a test message.
+          </span>
+        )}
+      </p>
+      <div className="flex flex-col gap-1.5">
+        <span className="text-sm font-medium">Webhook address</span>
+        <div className="flex items-stretch gap-2">
+          <code
+            className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded-md bg-surface-2 px-3 py-2.5 text-xs"
+            dir="ltr"
+          >
+            {i.webhook_url}
+          </code>
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label="Copy webhook address"
+            onClick={() => void copy()}
+          >
+            <Copy />
+          </Button>
+        </div>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <code className="break-all rounded bg-slate-100 px-2 py-1 text-xs dark:bg-slate-900">
-          {i.webhook_url}
-        </code>
-        <button
-          className="rounded border px-2 py-1 text-xs"
-          onClick={() => navigator.clipboard?.writeText(i.webhook_url)}
-        >
-          Copy
-        </button>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="primary" onClick={() => register.mutate()} disabled={register.isPending}>
+          <Link2 /> Register in OpenWA
+        </Button>
+        <ConfirmDialog
+          trigger={
+            <Button variant="outline">
+              <RefreshCw /> New webhook address
+            </Button>
+          }
+          title="Create a new webhook address?"
+          description={`The current address stops working immediately. You must register the new one in OpenWA before ${i.kid_name}'s messages are checked again.`}
+          confirmLabel="Create new address"
+          tone="primary"
+          onConfirm={() => rotate.mutate()}
+        />
+        <ConfirmDialog
+          trigger={
+            <Button variant="danger-outline" className="ms-auto">
+              <Trash2 /> Remove
+            </Button>
+          }
+          title={`Remove ${i.kid_name}?`}
+          description="Iris stops watching this phone. Messages already saved stay until the retention window removes them."
+          confirmLabel="Remove phone"
+          onConfirm={() => remove.mutate()}
+        />
       </div>
-      <div className="flex flex-wrap gap-2 text-xs">
-        <button
-          className="rounded border px-2 py-1"
-          onClick={() => act.mutate(post('register-webhook'))}
-        >
-          Register webhook in OpenWA
-        </button>
-        <button
-          className="rounded border px-2 py-1"
-          onClick={() =>
-            confirm('Rotate token? The old URL stops working immediately.') &&
-            act.mutate(post('rotate-token'))
-          }
-        >
-          Rotate token
-        </button>
-        <button
-          className="rounded border px-2 py-1"
-          onClick={() =>
-            act.mutate(() =>
-              api(`/api/instances/${i.id}`, {
-                method: 'PATCH',
-                body: JSON.stringify({ enabled: !i.enabled }),
-              }),
-            )
-          }
-        >
-          {i.enabled ? 'Disable' : 'Enable'}
-        </button>
-        <button
-          className="rounded border border-red-300 px-2 py-1 text-red-700"
-          onClick={() =>
-            confirm(`Delete ${i.kid_name}?`) &&
-            act.mutate(() => api(`/api/instances/${i.id}`, { method: 'DELETE' }))
-          }
-        >
-          Delete
-        </button>
-      </div>
-      {act.isSuccess && !msg && <p className="text-xs text-green-700">Done.</p>}
-      {msg && (
-        <p role="alert" className="text-xs text-red-600">
-          {msg}
-        </p>
-      )}
     </li>
   )
 }
 
-export function Instances() {
+function AddPhone() {
   const qc = useQueryClient()
-  const { data } = useQuery({
-    queryKey: ['instances'],
-    queryFn: () => api<Instance[]>('/api/instances'),
-  })
+  const [open, setOpen] = useState(false)
   const [form, setForm] = useState({
     kid_name: '',
     phone_number: '',
@@ -102,16 +156,14 @@ export function Instances() {
     openwa_instance_id: '',
     openwa_api_key: '',
   })
-  const [error, setError] = useState<string | null>(null)
-
-  async function add(e: FormEvent) {
-    e.preventDefault()
-    setError(null)
-    try {
-      await api('/api/instances', {
+  const add = useMutation({
+    mutationFn: () =>
+      api('/api/instances', {
         method: 'POST',
         body: JSON.stringify({ ...form, phone_number: form.phone_number || null }),
-      })
+      }),
+    onSuccess: () => {
+      toast.success(`${form.kid_name} added. Register the webhook to start watching.`)
       setForm({
         kid_name: '',
         phone_number: '',
@@ -119,58 +171,87 @@ export function Instances() {
         openwa_instance_id: '',
         openwa_api_key: '',
       })
-      await qc.invalidateQueries({ queryKey: ['instances'] })
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed')
-    }
-  }
+      setOpen(false)
+      return qc.invalidateQueries({ queryKey: ['instances'] })
+    },
+    onError: fail('Could not add the phone. Check the OpenWA address and try again.'),
+  })
   const f = (k: keyof typeof form) => ({
     value: form[k],
     onChange: (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value }),
   })
-
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    add.mutate()
+  }
   return (
-    <div className="flex max-w-3xl flex-col gap-4">
-      <h1 className="text-xl font-semibold">Instances</h1>
-      <p className="text-sm text-slate-500">
-        One instance per kid's WhatsApp number (an OpenWA session).
-      </p>
-      <ul className="divide-y divide-slate-200 rounded border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
-        {data?.map((i) => (
-          <Row key={i.id} i={i} />
-        ))}
-        {data?.length === 0 && <li className="p-3 text-sm text-slate-500">No instances yet.</li>}
-      </ul>
-      <form
-        onSubmit={add}
-        className="flex flex-col gap-2 rounded border border-slate-200 p-3 dark:border-slate-800"
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="primary">
+          <Plus /> Add a phone
+        </Button>
+      </DialogTrigger>
+      <DialogContent
+        title="Add a phone"
+        description="One phone is one child's WhatsApp number, connected through an OpenWA session."
       >
-        <h2 className="font-medium">Add instance</h2>
-        <input className={input} placeholder="Kid name" required {...f('kid_name')} />
-        <input className={input} placeholder="Phone number (display only)" {...f('phone_number')} />
-        <input className={input} placeholder="OpenWA base URL" required {...f('openwa_base_url')} />
-        <input
-          className={input}
-          placeholder="OpenWA session ID"
-          required
-          {...f('openwa_instance_id')}
-        />
-        <input
-          className={input}
-          type="password"
-          placeholder="OpenWA API key"
-          autoComplete="off"
-          {...f('openwa_api_key')}
-        />
-        {error && (
-          <p role="alert" className="text-sm text-red-600">
-            {error}
-          </p>
-        )}
-        <button className="self-start rounded bg-indigo-600 px-3 py-1 text-sm text-white">
-          Add
-        </button>
-      </form>
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <Field label="Child's name">
+            <Input required {...f('kid_name')} />
+          </Field>
+          <Field label="OpenWA address">
+            <Input
+              required
+              type="url"
+              dir="ltr"
+              placeholder="https://openwa.example.com"
+              {...f('openwa_base_url')}
+            />
+          </Field>
+          <Field label="OpenWA session ID" hint="The full ID, not the session's name.">
+            <Input required dir="ltr" {...f('openwa_instance_id')} />
+          </Field>
+          <Field label="OpenWA API key">
+            <Input type="password" autoComplete="off" {...f('openwa_api_key')} />
+          </Field>
+          <Field label="Phone number (optional)" hint="Only shown here, to tell phones apart.">
+            <Input dir="ltr" {...f('phone_number')} />
+          </Field>
+          <Button type="submit" variant="primary" size="lg" disabled={add.isPending}>
+            Add phone
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export function Instances() {
+  const { data, isLoading } = useQuery({
+    queryKey: ['instances'],
+    queryFn: () => api<Instance[]>('/api/instances'),
+    refetchInterval: 60_000,
+  })
+  return (
+    <div className="flex max-w-3xl flex-col gap-5">
+      <PageHeader
+        title="Phones"
+        description="The children's numbers Iris watches. Each one connects through its own OpenWA session."
+        actions={<AddPhone />}
+      />
+      {isLoading && <Skeleton className="h-48" />}
+      <ul className="flex flex-col gap-4">
+        {data?.map((i) => (
+          <PhoneCard key={i.id} i={i} />
+        ))}
+      </ul>
+      {data?.length === 0 && (
+        <div className="rounded-lg border bg-surface">
+          <EmptyState icon={Smartphone} title="No phones yet">
+            Add the first child's number to start watching. You will need an OpenWA session for it.
+          </EmptyState>
+        </div>
+      )}
     </div>
   )
 }
