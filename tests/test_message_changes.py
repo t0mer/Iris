@@ -251,29 +251,6 @@ async def test_redaction_after_an_edit_wipes_the_history(app_client: Any) -> Non
     await deps.providers.aclose()
 
 
-async def test_a_second_check_waits_while_the_first_is_running(app_client: Any) -> None:
-    import pytest
-
-    from app.db.models import Job as JobModel
-    from app.jobs import queue
-    from app.jobs.handlers import process_message
-    from app.jobs.queue import ClaimedJob, TransientError
-    from tests.test_worker import setup
-
-    deps, token = await setup(app_client)
-    await post(app_client, token, fx(SENT))
-    m = await _message(app_client)
-    async with app_client.app.state.session_factory() as s:
-        s.add(JobModel(type="process_message", payload={"message_id": m.id}, status="running"))
-        await s.commit()
-    first = await queue.claim(deps.session_factory)
-    assert first is not None
-    assert isinstance(first, ClaimedJob)
-    with pytest.raises(TransientError):
-        await process_message(first, deps)
-    await deps.providers.aclose()
-
-
 async def test_api_exposes_flags_and_history_but_not_for_redacted(app_client: Any) -> None:
     _, token = await make_instance(app_client)
     await post(app_client, token, fx(SENT))
@@ -291,3 +268,119 @@ async def test_api_exposes_flags_and_history_but_not_for_redacted(app_client: An
         await s.commit()
     d = (await app_client.get(f"/api/messages/{mid}")).json()
     assert d["revisions"] == [] and d["text"] is None
+
+
+async def test_a_dead_follow_up_does_not_fail_the_delivered_alert(app_client: Any) -> None:
+    from app.config import get_settings
+    from app.jobs import queue
+    from app.jobs.handlers import Deps
+    from app.jobs.queue import ClaimedJob
+    from app.providers import Providers
+
+    _, token = await make_instance(app_client)
+    await post(app_client, token, fx("text_received_mixed"))
+    aid = await _alert_for(app_client, "sent")
+    deps = Deps(app_client.app.state.session_factory, Providers(), get_settings().key_bytes)
+    job = ClaimedJob(99, "notify_change", {"alert_id": aid, "kind": "revoked"}, 5, 5)
+    assert await queue.fail(deps.session_factory, job, "boom", transient=True) == "dead"
+    async with app_client.app.state.session_factory() as s:
+        assert (await s.get(Alert, aid)).delivery_status == "sent"  # type: ignore[union-attr]
+    await deps.providers.aclose()
+
+
+async def test_only_the_later_check_of_a_message_waits(app_client: Any) -> None:
+    import pytest
+    from sqlalchemy import update
+
+    from app.config import get_settings
+    from app.db.models import Job as JobModel
+    from app.jobs.handlers import Deps, process_message
+    from app.jobs.queue import ClaimedJob, PermanentError, TransientError
+    from app.providers import Providers
+
+    _, token = await make_instance(app_client)
+    await post(app_client, token, fx(SENT))
+    m = await _message(app_client)
+    async with app_client.app.state.session_factory() as s:
+        s.add(JobModel(type="process_message", payload={"message_id": m.id}))
+        await s.commit()
+        ids = [j.id for j in (await s.execute(select(JobModel).order_by(JobModel.id))).scalars()]
+    deps = Deps(app_client.app.state.session_factory, Providers(), get_settings().key_bytes)
+    earlier = ClaimedJob(ids[0], "process_message", {"message_id": m.id}, 1, 5)
+    later = ClaimedJob(ids[1], "process_message", {"message_id": m.id}, 1, 5)
+
+    async def mark(job_id: int, status: str) -> None:
+        async with app_client.app.state.session_factory() as s:
+            await s.execute(update(JobModel).where(JobModel.id == job_id).values(status=status))
+            await s.commit()
+
+    await mark(ids[0], "running")
+    await mark(ids[1], "running")
+    with pytest.raises(TransientError):
+        await process_message(later, deps)  # waits for the earlier one
+    # The earlier job never waits for the later one; here it fails only for the missing key.
+    with pytest.raises(PermanentError, match="OpenAI"):
+        await process_message(earlier, deps)
+    await deps.providers.aclose()
+
+
+async def test_follow_up_is_queued_while_the_alert_is_still_pending_and_coalesced(
+    app_client: Any,
+) -> None:
+    _, token = await make_instance(app_client)
+    await post(app_client, token, fx(SENT))
+    aid = await _alert_for(app_client, "pending")
+    await post(app_client, token, fx("message_edited"))
+    second = json.loads(fx("message_edited"))
+    second["data"]["body"] = "yet another wording"
+    await post(app_client, token, json.dumps(second).encode())
+    jobs = await _jobs(app_client, "notify_change")
+    assert [j.payload for j in jobs] == [{"alert_id": aid, "kind": "edited"}]
+
+
+async def test_follow_up_waits_for_a_pending_alert_and_skips_an_undelivered_one(
+    app_client: Any,
+) -> None:
+    import pytest
+
+    from app.alerts.delivery import notify_change
+    from app.config import get_settings
+    from app.jobs.handlers import Deps
+    from app.jobs.queue import ClaimedJob, TransientError
+    from app.providers import Providers
+
+    _, token = await make_instance(app_client)
+    await post(app_client, token, fx(SENT))
+    aid = await _alert_for(app_client, "pending")
+    deps = Deps(app_client.app.state.session_factory, Providers(), get_settings().key_bytes)
+    job = ClaimedJob(1, "notify_change", {"alert_id": aid, "kind": "edited"}, 1, 5)
+    with pytest.raises(TransientError):
+        await notify_change(job, deps)
+    async with app_client.app.state.session_factory() as s:
+        (await s.get(Alert, aid)).delivery_status = "failed"  # type: ignore[union-attr]
+        await s.commit()
+    await notify_change(job, deps)  # returns quietly: the parent never got the alert
+    await deps.providers.aclose()
+
+
+async def test_an_older_edit_delivered_late_does_not_roll_the_text_back(
+    app_client: Any,
+) -> None:
+    _, token = await make_instance(app_client)
+    await post(app_client, token, fx(SENT))
+    first = fx("message_edited")
+    await post(app_client, token, first)
+    newer = json.loads(first)
+    newer["data"]["body"] = "newest wording"
+    await post(app_client, token, json.dumps(newer).encode())
+    assert (await post(app_client, token, first)).json() == {"result": "duplicate"}
+    assert (await _message(app_client)).text == "newest wording"
+
+
+async def test_a_no_op_change_still_records_that_the_phone_is_alive(app_client: Any) -> None:
+    from app.db.models import Instance
+
+    iid, token = await make_instance(app_client)
+    assert (await post(app_client, token, fx("message_edited"))).json() == {"result": "ignored"}
+    async with app_client.app.state.session_factory() as s:
+        assert (await s.get(Instance, iid)).last_webhook_at is not None  # type: ignore[union-attr]
