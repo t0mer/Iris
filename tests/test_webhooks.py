@@ -191,6 +191,9 @@ async def test_signature_mandatory_after_iris_registers_webhook(app_client: Any)
     iid, token = await make_instance(app_client)
     await app_client.patch(f"/api/instances/{iid}", json={"openwa_api_key": "k"})
     with respx.mock:
+        respx.get("https://wa.x/api/sessions/s/webhooks").mock(
+            return_value=httpx.Response(200, json=[])
+        )
         respx.post("https://wa.x/api/sessions/s/webhooks").mock(
             return_value=httpx.Response(201, json={"id": "w"})
         )
