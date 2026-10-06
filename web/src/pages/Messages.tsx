@@ -186,7 +186,7 @@ export function Messages() {
                 <KidStack names={m.kids.map((k) => k.kid_name)} />
                 <span className="font-medium">{m.kids.map((k) => k.kid_name).join(' and ')}</span>
                 <span className="text-sm text-muted-foreground">
-                  {m.chat_name ?? (m.is_group ? 'a group' : 'a chat')}
+                  {m.chat_name ?? (m.is_group ? 'an unnamed group' : 'a chat')}
                   {m.sender_name ? `, ${m.sender_name}` : ''}
                 </span>
                 <span className="ms-auto text-xs text-muted-foreground">{dateTime(m.sent_at)}</span>

@@ -38,7 +38,7 @@ export function Chats() {
               </span>
               <span className="flex min-w-0 flex-1 flex-col gap-1">
                 <span className="truncate font-medium" dir="auto">
-                  {c.name ?? c.wa_chat_id}
+                  {c.name ?? (c.is_group ? 'Unnamed group' : 'Direct chat')}
                 </span>
                 <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
                   <KidStack names={c.kids.map((k) => k.kid_name)} />
