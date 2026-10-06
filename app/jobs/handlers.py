@@ -9,16 +9,22 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.alerts.service import alert_on_harmful, alert_on_review, needs_redaction, redact_message
+from app.alerts.service import (
+    alert_on_harmful,
+    alert_on_review,
+    needs_redaction,
+    redact_message,
+    wipe_revisions,
+)
 from app.chats import resolve_group_names
 from app.classify.pipeline import PipelineOutcome, run_pipeline
 from app.classify.stages import StageContext
 from app.classify.thresholds import effective_thresholds
-from app.db.models import Chat, Classification, Instance, Message
-from app.jobs.queue import ClaimedJob, PermanentError
+from app.db.models import Chat, Classification, Instance, Job, Message
+from app.jobs.queue import ClaimedJob, PermanentError, TransientError
 from app.media import ffmpeg
 from app.media.fetch import MAX_AUDIO_SECONDS, MediaSkipped, download, job_tmpdir
 from app.metrics import MESSAGES, STAGE_SECONDS, TRANSCRIBED_AUDIO_SECONDS
@@ -158,6 +164,9 @@ def _persist(db: AsyncSession, message: Message, outcome: PipelineOutcome) -> No
         )
 
 
+_RANK = {"safe": 0, "review": 1, "harmful": 2}
+
+
 async def process_message(job: ClaimedJob, deps: Deps) -> None:
     message_id = job.payload.get("message_id")
     if not isinstance(message_id, int):
@@ -171,6 +180,21 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             await db.commit()
             return
 
+        # An edit queues a second check while the first may still be running: wait for it, so
+        # two checks never interleave their classifications and verdicts.
+        busy = (
+            await db.execute(
+                select(Job.id).where(
+                    Job.type == "process_message",
+                    Job.status == "running",
+                    Job.id != job.id,
+                    Job.payload["message_id"].as_integer() == message.id,
+                )
+            )
+        ).first()
+        if busy is not None:
+            raise TransientError("this message is already being checked")
+        prior_verdict = message.verdict
         message.status = "processing"
         await db.execute(delete(Classification).where(Classification.message_id == message.id))
         await db.commit()
@@ -225,6 +249,12 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
                 raise problem  # visible on the Jobs page, retryable once the cause is fixed
             return
         message.verdict = outcome.verdict
+        if (
+            message.edited_at is not None
+            and _RANK.get(prior_verdict or "", -1) > _RANK[outcome.verdict]
+        ):
+            # Editing a flagged message into something harmless must not clear the flag.
+            message.verdict = prior_verdict
         message.status = "done"
         if outcome.results:
             last = outcome.results[-1]
@@ -232,6 +262,7 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
                 # Withhold now, in the same commit as the verdict: a message awaiting review (or
                 # with alerts off) must not sit in the DB, search index or portal unredacted.
                 redact_message(message)
+                await wipe_revisions(db, message.id)
                 logger.warning(
                     "message {} redacted at classification; content withheld", message.id
                 )

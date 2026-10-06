@@ -3,12 +3,20 @@
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts.format import make_quote
 from app.classify.pipeline import PipelineOutcome
-from app.db.models import Alert, Chat, Classification, Instance, Message, MessageReceipt
+from app.db.models import (
+    Alert,
+    Chat,
+    Classification,
+    Instance,
+    Message,
+    MessageReceipt,
+    MessageRevision,
+)
 from app.jobs.queue import enqueue
 from app.metrics import ALERTS
 from app.settings_store import get_setting
@@ -40,6 +48,11 @@ def redact_message(message: Message) -> None:
     message.transcript = REDACTED
     message.media = None  # no way back to the attachment (reprocess is blocked anyway)
     message.redacted = True
+
+
+async def wipe_revisions(db: AsyncSession, message_id: int) -> None:
+    """Withheld content must not survive in the edit history either."""
+    await db.execute(delete(MessageRevision).where(MessageRevision.message_id == message_id))
 
 
 async def _kid_names(db: AsyncSession, message_id: int) -> list[str]:
@@ -77,6 +90,7 @@ async def create_alert(db: AsyncSession, message: Message, scores: dict[str, flo
     redact = message.redacted or should_redact(message.type, categories)
     if redact:
         redact_message(message)
+        await wipe_revisions(db, message.id)
         quote = None
         logger.warning("message {} redacted ({}); content withheld", message.id, categories)
     else:
