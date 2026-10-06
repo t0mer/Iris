@@ -65,10 +65,8 @@ export function TryIt() {
             .filter(Boolean),
         }),
       }),
-    onSuccess: (r) => {
-      setResult(r)
-      setDraft({})
-    },
+    // The draft stays: re-checking another phrase should run against the same tuning.
+    onSuccess: setResult,
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not check the text.'),
   })
 
@@ -97,7 +95,11 @@ export function TryIt() {
 
   const current = useMemo(() => {
     const out: Record<string, Pair> = {}
-    for (const r of result?.thresholds ?? []) out[r.category] = draftPair(r, draft)
+    for (const r of result?.thresholds ?? []) {
+      const p = draftPair(r, draft)
+      // A half-typed value must not decide the verdict: keep the saved pair until it is valid.
+      out[r.category] = validPair(p.low, p.high) ? p : { low: r.low, high: r.high }
+    }
     return out
   }, [result, draft])
 
@@ -116,6 +118,7 @@ export function TryIt() {
     [result, stages],
   )
   const overrides = overridesFrom(result?.thresholds, draft)
+  const invalid = overrides === 'invalid'
   const changedFromSaved =
     result?.thresholds.some((r) => {
       const p = draftPair(r, draft)
@@ -139,7 +142,13 @@ export function TryIt() {
         className="flex flex-col gap-4 rounded-lg border bg-surface p-4"
         onSubmit={(e) => {
           e.preventDefault()
-          if (text.trim()) check.mutate()
+          if (!text.trim()) return
+          const lines = context.split('\n').filter((l) => l.trim())
+          if (lines.length > 20 || lines.some((l) => l.length > 1000)) {
+            toast.error('Use at most 20 earlier messages of up to 1,000 characters each.')
+            return
+          }
+          check.mutate()
         }}
       >
         <Field label="Message to check">
@@ -153,7 +162,7 @@ export function TryIt() {
         </Field>
         <Field
           label="Earlier messages in the chat (optional)"
-          hint="One per line, oldest first. Iris uses them for the second look when the first check is unclear."
+          hint="One per line, oldest first (up to 20). Iris uses them for the second look when the first check is unclear."
         >
           <Textarea
             dir="auto"
@@ -172,10 +181,9 @@ export function TryIt() {
         </div>
       </form>
 
-      {result && verdict && (
-        <>
+      <div aria-live="polite">
+        {result && verdict && (
           <section
-            aria-live="polite"
             className={cn('flex flex-col gap-1 rounded-lg border p-4', VERDICT[verdict].tone)}
           >
             <h2 className="text-lg font-semibold">{VERDICT[verdict].title}</h2>
@@ -189,7 +197,11 @@ export function TryIt() {
               ))}
             </ul>
           </section>
+        )}
+      </div>
 
+      {result && verdict && (
+        <>
           <section aria-labelledby="th" className="flex flex-col gap-3">
             <div className="flex flex-wrap items-end justify-between gap-2">
               <div>
@@ -212,7 +224,7 @@ export function TryIt() {
                 </Button>
                 <Button
                   type="button"
-                  disabled={!changedFromSaved || save.isPending}
+                  disabled={!changedFromSaved || invalid || save.isPending}
                   onClick={() => {
                     if (overrides === 'invalid') {
                       toast.error(
@@ -227,6 +239,13 @@ export function TryIt() {
                 </Button>
               </div>
             </div>
+            {invalid && (
+              <p role="status" className="text-sm text-danger">
+                Fix the highlighted values: numbers from 0 to 1, with &ldquo;needs a look&rdquo;
+                lower than &ldquo;harmful&rdquo;. The verdict above still uses the saved values for
+                those rows.
+              </p>
+            )}
             {stages.length > 1 && (
               <p className="text-xs text-muted-foreground">
                 Each row shows the first check on top and the second look below it. Orange marks

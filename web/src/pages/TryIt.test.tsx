@@ -71,14 +71,45 @@ test('save sends only the rows that differ from the defaults', async () => {
   })
 })
 
-test('an invalid range is not saved', async () => {
+test('an invalid range cannot be saved and says why', async () => {
   const calls = await check()
   const low = screen.getByLabelText('violence needs a look')
   await userEvent.clear(low)
   await userEvent.type(low, '0.9')
-  await userEvent.click(screen.getByRole('button', { name: /Save these thresholds/ }))
+  expect(screen.getByRole('button', { name: /Save these thresholds/ })).toBeDisabled()
+  expect(screen.getByText(/Fix the highlighted values/)).toBeInTheDocument()
   expect(calls.some((c) => c.method === 'PUT')).toBe(false)
-  expect(await screen.findByText(/Thresholds must be numbers/)).toBeInTheDocument()
+})
+
+test('a half-typed value does not change the verdict', async () => {
+  await check()
+  const high = screen.getByLabelText('violence harmful')
+  await userEvent.clear(high) // blank
+  expect(screen.getByRole('heading', { name: 'Needs a look' })).toBeInTheDocument()
+  await userEvent.type(high, '-')
+  expect(screen.getByRole('heading', { name: 'Needs a look' })).toBeInTheDocument()
+})
+
+test('threshold edits survive checking another phrase', async () => {
+  await check()
+  const high = screen.getByLabelText('violence harmful')
+  await userEvent.clear(high)
+  await userEvent.type(high, '0.35')
+  await userEvent.click(screen.getByRole('button', { name: /Check/ }))
+  expect(await screen.findByRole('heading', { name: 'Harmful' })).toBeInTheDocument()
+  expect(screen.getByLabelText('violence harmful')).toHaveValue(0.35)
+})
+
+test('too many context lines are refused before sending', async () => {
+  const calls = renderWithApp(<TryIt />, { '/api/classify/test': response })
+  await userEvent.type(screen.getByLabelText('Message to check'), 'x')
+  await userEvent.type(
+    screen.getByLabelText(/Earlier messages/),
+    Array.from({ length: 21 }, (_, i) => `l${i}`).join('{enter}'),
+  )
+  await userEvent.click(screen.getByRole('button', { name: /Check/ }))
+  expect(await screen.findByText(/at most 20 earlier messages/)).toBeInTheDocument()
+  expect(calls.some((c) => c.url === '/api/classify/test')).toBe(false)
 })
 
 test('reset returns to the saved values', async () => {

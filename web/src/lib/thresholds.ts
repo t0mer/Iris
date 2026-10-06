@@ -4,9 +4,12 @@ export type Draft = Record<string, { low: string; high: string }>
 export type Overrides = Record<string, { low: number; high: number }>
 
 /** The pair a row currently shows: the typed draft if there is one, else the saved values. */
+const num = (v: string) => (v.trim() === '' ? NaN : Number(v))
+
+/** The pair a row currently shows: the typed draft if there is one (NaN while a field is blank). */
 export function draftPair(r: ThresholdRow, draft: Draft) {
   const e = draft[r.category]
-  return e ? { low: Number(e.low), high: Number(e.high) } : { low: r.low, high: r.high }
+  return e ? { low: num(e.low), high: num(e.high) } : { low: r.low, high: r.high }
 }
 
 export function validPair(low: number, high: number) {
