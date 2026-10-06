@@ -1,1 +1,374 @@
 # Iris
+
+Iris is a self-hosted safety monitor for kids' WhatsApp. It watches the chats and groups of one or more
+kids' numbers through [OpenWA](https://github.com/rmyndharis/OpenWA), classifies **text, voice notes,
+audio, images and video** for harmful content, and alerts a parent **over WhatsApp** with the kid, the chat,
+the sender and the quoted message.
+
+It is built for mixed Hebrew and English chats (nothing is hardcoded to a language), runs as a single Docker
+container (amd64 and arm64), and uses free or low-cost models wherever possible.
+
+> **Read this first.** Monitoring a child's messages is a sensitive decision. Use Iris openly and only for
+> children you are responsible for, and make sure you are allowed to do so where you live. Iris is
+> read-only: it never replies or interacts in a chat. It only sends alerts to the number you choose.
+
+![Dashboard](assets/screenshots/dashboard.png)
+
+## Contents
+
+- [Features](#features)
+- [How it works](#how-it-works)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Connecting OpenWA](#connecting-openwa)
+- [Configuration](#configuration)
+- [Using the portal](#using-the-portal)
+- [API](#api)
+- [Metrics](#metrics)
+- [Privacy and security](#privacy-and-security)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [License](#license)
+
+## Features
+
+- **One webhook per number.** Each kid's WhatsApp session gets its own signed webhook; one number is one kid.
+- **Text** is checked with OpenAI Moderation (a free endpoint).
+- **Images and stickers** (with their caption) go through multimodal moderation.
+- **Voice notes, audio and video** are transcribed (OpenAI or Cloudflare Workers AI, your choice), then the
+  transcript is moderated.
+- **Context-aware second look.** A message that is borderline is re-checked together with the previous
+  messages in the same chat. If it is still unclear it lands in a **review queue** instead of a guess.
+- **WhatsApp alerts** with the kid, chat, sender, category, score, time and the quoted message. A per-chat
+  cooldown avoids floods and the next alert says how many were held back.
+- **Both sessions monitored?** A message between two monitored kids is stored once, with both kids on it, and
+  produces one alert.
+- **Searchable archive** (SQLite FTS5, Hebrew and English) with filters, a chat-style context view,
+  highlighting, and a dark mode.
+- **Sexual content safety rule.** Content involving minors, or sexual imagery, is withheld entirely: it is
+  not stored, not searchable, not shown and not forwarded. The alert says to review the chat directly.
+- **Self-hosted and private.** Secrets are encrypted at rest, logs never contain message text, media is
+  deleted after processing, and old data is removed automatically.
+- Prometheus metrics, a REST API with interactive docs, and a multi-arch image.
+
+## How it works
+
+```mermaid
+flowchart LR
+    OW["OpenWA<br/>(one session per kid)"] -- "POST /webhooks/&lt;token&gt;" --> IN
+    subgraph iris ["iris container"]
+        IN["Ingest<br/>validate, dedupe, store, enqueue"] --> Q[("Job queue<br/>SQLite")]
+        Q --> W["Workers"]
+        W --> M["Media<br/>download, ffmpeg"]
+        M --> T["Transcription<br/>OpenAI / Cloudflare"]
+        W --> C["Classification<br/>moderation, then context"]
+        T --> C
+        C --> A["Alert service<br/>cooldown, redaction"]
+        A -- "send-text" --> OW
+        UI["Portal + REST API"] --- DB[("SQLite + FTS5")]
+    end
+    A -. "WhatsApp message" .-> P(("Parent"))
+```
+
+The webhook handler never calls an external API: it validates, stores, queues and answers `200`. All slow
+work (downloading media, transcribing, moderating, alerting) happens in worker tasks inside the same process.
+Iris runs as **one process on purpose**: the queue and SQLite assume it.
+
+## Requirements
+
+- Docker, on amd64 or arm64.
+- An **OpenWA 0.24.0 or newer** server with one running session per monitored number. Older versions cannot
+  download media that the session *receives* (see [Troubleshooting](#troubleshooting)).
+- An **OpenAI API key** for moderation (the moderation endpoint is free but rate limited). It is also used
+  for transcription unless you choose Cloudflare.
+- Optional: a Cloudflare account ID and API token for Workers AI transcription.
+- A **public hostname or IP for Iris** that OpenWA can reach. OpenWA refuses to send webhooks to private
+  network addresses (`Destination address is not allowed`), so a LAN IP will not work: use a reverse proxy or
+  tunnel and expose only `/webhooks/*` if you can.
+
+## Installation
+
+### Docker Compose
+
+```yaml
+services:
+  iris:
+    image: techblog/iris:latest
+    ports: ["8080:8080"]
+    volumes:
+      - iris-data:/data        # SQLite database; a named volume keeps non-root ownership
+    environment:
+      IRIS_SECRET_KEY: ""            # openssl rand -base64 32
+      IRIS_ADMIN_USERNAME: admin     # first run only
+      IRIS_ADMIN_PASSWORD: ""        # first run only
+      IRIS_PUBLIC_BASE_URL: https://iris.example.com   # what OpenWA can reach
+    restart: unless-stopped
+volumes:
+  iris-data:
+```
+
+```bash
+openssl rand -base64 32      # paste into IRIS_SECRET_KEY, and back it up
+docker compose up -d
+```
+
+Open the portal on port 8080 and sign in with the admin credentials. They are used only to create the first
+account; change the password under **Settings → Account**.
+
+> **Back up `IRIS_SECRET_KEY`.** It encrypts every stored secret (API keys). Lose it and you must re-enter them.
+
+The container runs as a non-root user (uid 10001), applies database migrations on start, and has a health
+check on `/api/health`.
+
+### Build from source
+
+```bash
+uv sync                                    # Python 3.12
+cd web && npm ci && npm run build && cd .. # builds the portal into app/static
+IRIS_SECRET_KEY=... IRIS_PUBLIC_BASE_URL=http://localhost:8080 \
+IRIS_ADMIN_USERNAME=admin IRIS_ADMIN_PASSWORD=change-me IRIS_DATA_DIR=./data \
+  uv run alembic upgrade head && uv run uvicorn app.main:app --port 8080
+```
+
+`ffmpeg` and `ffprobe` must be installed (the Docker image includes them).
+
+## Connecting OpenWA
+
+1. In the portal go to **Instances → Add instance** and enter the kid's name, your OpenWA base URL, the
+   OpenWA **session ID** (the full UUID, not the name) and an OpenWA API key that can use that session.
+2. Click **Register webhook in OpenWA**. Iris creates a webhook for `message.received` and
+   `message.sent` and a signing secret, so deliveries are verified with an HMAC. If registration says the
+   destination is not allowed, your `IRIS_PUBLIC_BASE_URL` is a private address (see Requirements).
+   You can also paste the shown URL (`https://…/webhooks/<token>`) into OpenWA by hand.
+3. Repeat for every number you monitor.
+4. Under **Settings → Alerts** choose the instance that **sends** alerts, enter the parent's number
+   (international format, digits only, e.g. `972501234567`) and press **Test**. A real WhatsApp message is
+   sent using the values you typed, before you save.
+
+![Instances](assets/screenshots/instances.png)
+
+Rotating a webhook token cuts the old URL off immediately; register the webhook again afterwards. The
+**Last webhook** column shows when each number last reported in; the dashboard warns about instances that
+never have.
+
+## Configuration
+
+### Environment variables
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `IRIS_SECRET_KEY` | yes | | 32 bytes, base64. Encrypts secrets at rest and derives session and webhook signing keys. Iris will not start without it. |
+| `IRIS_PUBLIC_BASE_URL` | yes | | Externally reachable base URL, used to build webhook URLs and alert links. |
+| `IRIS_ADMIN_USERNAME` | first run | | Initial admin user. |
+| `IRIS_ADMIN_PASSWORD` | first run | | Initial admin password (stored hashed with argon2; ignored afterwards). |
+| `IRIS_DATA_DIR` | no | `/data` | SQLite database and temporary media. |
+| `IRIS_PORT` | no | `8080` | Listening port. |
+| `IRIS_WORKERS` | no | `3` | Concurrent job workers. |
+| `IRIS_LOG_LEVEL` | no | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
+| `IRIS_LOG_JSON` | no | `false` | JSON log lines. |
+| `IRIS_METRICS_TOKEN` | no | unset | If set, `/metrics` requires `Authorization: Bearer <token>`. |
+| `IRIS_FORWARDED_ALLOW_IPS` | no | `127.0.0.1` | Your reverse proxy's IP, so the login rate limit sees real client addresses. |
+
+### Settings (in the portal)
+
+Everything else is edited under **Settings** and stored in the database. Secrets are write-only: the API and
+UI only ever say whether one is set.
+
+| Tab | Setting | Default |
+|---|---|---|
+| Providers | OpenAI API key | |
+| Providers | Transcription provider (`openai` or `cloudflare`) | `openai` |
+| Providers | OpenAI transcription model | `gpt-4o-mini-transcribe` (or `whisper-1`) |
+| Providers | Cloudflare account ID, API token, model | `@cf/openai/whisper-large-v3-turbo` |
+| Classification | Moderation model | `omni-moderation-latest` |
+| Classification | Per-category thresholds (low and high) | see below |
+| Classification | Context window / max age | 8 messages / 6 hours |
+| Alerts | Sender instance, recipient, cooldown, time zone | cooldown 10 min, `Asia/Jerusalem` |
+| Alerts | Also alert on items needing review | off |
+| Scope | Monitor messages sent by the kid, direct chats, groups | all on |
+| Retention | Keep messages / alerts | 90 / 365 days |
+
+Switching the transcription provider takes effect immediately, with no restart.
+
+![Settings: classification](assets/screenshots/settings-classification.png)
+
+**Thresholds.** For each moderation category a score at or above **high** is harmful; between **low** and
+**high** it is inconclusive and gets the context check; below **low** it is safe. Defaults are strictest for
+`sexual/minors` (0.05 / 0.30) and self-harm (0.10 / 0.40), and loosest for general harassment, hate, illicit
+and violence (0.20 / 0.70). Iris decides from the category scores, not from the API's own `flagged` flag.
+
+## Using the portal
+
+### Alerts
+
+![Alerts](assets/screenshots/alerts.png)
+
+Each alert shows the kid, chat, sender, categories with scores, the quote and whether it was delivered. Open
+one to see the full score breakdown per stage, link to the message **in its chat context**, acknowledge or
+dismiss it, or **resend** it if delivery failed.
+
+![Alert detail](assets/screenshots/alert-detail.png)
+
+The WhatsApp alert looks like this:
+
+```
+⚠️ Iris alert
+Kid: Noa, Dan
+Chat: Class 6B (group)
+From: Yonatan
+Category: harassment (0.98)
+Time: 06/10 17:14
+
+"You are a worthless idiot, nobody likes you, just disappear"
+
+Open: https://iris.example.com/alerts/12?s=…
+```
+
+Voice-note quotes are prefixed with 🎤 and image captions with 🖼️. The signed link at the end lets Iris
+recognise its own alerts if they come back through a monitored number, and it cannot be copied onto
+different text.
+
+### Messages and context
+
+![Message search](assets/screenshots/messages-search.png)
+
+Search matches words and prefixes in messages **and transcripts**, in Hebrew and English, with filters for
+kid, chat, sender, type, verdict and dates. Open a message to see the surrounding chat with the message
+highlighted and its classifications.
+
+![Message in context](assets/screenshots/message-context.png)
+
+### Review queue
+
+![Review queue](assets/screenshots/review.png)
+
+Messages that stayed inconclusive even with the surrounding chat wait here. **Mark safe** closes them;
+**Mark harmful** creates an alert.
+
+### Chats, instances, jobs
+
+![Chats](assets/screenshots/chats.png)
+
+![Jobs](assets/screenshots/jobs.png)
+
+**Jobs** lists work that failed, with the reason, and a Retry button. A message that failed shows `failed`
+and its reason in the message list (it is never silently shown as pending).
+
+### Dark mode
+
+The portal follows your system's light or dark preference.
+
+![Dashboard in dark mode](assets/screenshots/dashboard-dark.png)
+
+## API
+
+All endpoints are under `/api`, return JSON, and need the session cookie from `POST /api/auth/login`,
+except `/api/auth/login`, `/api/health` and `/api/version`. Interactive OpenAPI docs are at **`/api/docs`**
+(sign in first).
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/auth/login`, `/api/auth/logout`, `/api/auth/password` | Session login (HttpOnly, SameSite=Strict, 7 days; 5 failures per 15 minutes per IP), logout, change password |
+| GET | `/api/health`, `/api/version` | Liveness (database and workers), version |
+| GET | `/api/stats` | Dashboard numbers |
+| GET | `/api/messages` | Search: `q`, `instance_id`, `chat_id`, `sender`, `type`, `verdict`, `from`, `to`, `page`, `page_size` (max 100) |
+| GET | `/api/messages/{id}`, `/api/messages/{id}/context` | One message with classifications; surrounding messages |
+| POST | `/api/messages/{id}/reprocess` | Re-queue classification (not for redacted messages) |
+| GET | `/api/alerts`, `/api/alerts/{id}` | List with filters (`status`, `instance_id`, `chat_id`, `category`, dates); detail |
+| PATCH | `/api/alerts/{id}` | Set status to `new`, `acknowledged` or `dismissed` |
+| POST | `/api/alerts/{id}/resend` | Send the alert again (ignores the cooldown) |
+| GET, POST | `/api/review`, `/api/review/{message_id}` | Review queue; resolve as `safe` or `harmful` |
+| GET | `/api/chats` | Known chats with kids and counts |
+| GET/POST/PATCH/DELETE | `/api/instances[/{id}]` | Manage monitored numbers (API keys are never returned) |
+| POST | `/api/instances/{id}/rotate-token`, `/register-webhook` | Rotate the webhook token; register it in OpenWA |
+| GET, PUT | `/api/settings`, `/api/settings/thresholds` | Read and write settings; effective thresholds |
+| POST | `/api/settings/test/{openai\|cloudflare\|alert}` | Test a provider with the values entered |
+| GET | `/api/jobs` | Failed and dead jobs; `POST /api/jobs/{id}/retry` |
+| POST | `/webhooks/{token}` | OpenWA delivers here (authenticated by the token, and by an HMAC signature once Iris registered the webhook) |
+
+## Metrics
+
+`GET /metrics` (Prometheus text format):
+
+| Metric | Labels |
+|---|---|
+| `iris_webhooks_total` | `instance`, `result` (accepted, duplicate, skipped, rejected) |
+| `iris_messages_processed_total` | `type`, `verdict` |
+| `iris_stage_duration_seconds` | `stage` |
+| `iris_provider_requests_total`, `iris_provider_duration_seconds` | `provider`, `endpoint`, `status` |
+| `iris_transcription_seconds_audio_total` | `provider` |
+| `iris_alerts_total` | `category`, `delivery_status` |
+| `iris_jobs` | `status` |
+
+`/metrics` is open by default. Because OpenWA needs Iris's port for webhooks, that port may be reachable from
+outside, so set `IRIS_METRICS_TOKEN` or restrict `/metrics` in your reverse proxy.
+
+## Privacy and security
+
+- **Sign-in required** for the portal and every API except health and version. Webhooks are authenticated by
+  a 32-byte random, rotatable token and, once registered through Iris, an HMAC signature.
+- **Secrets are encrypted at rest** (AES-256-GCM) and never returned by the API.
+- **Logs contain only IDs, types, categories, scores and timings**, never message text, transcripts or media.
+- **Media is never kept.** It is downloaded to a per-job temporary directory and deleted afterwards, also on
+  failure and on shutdown; leftovers from a crash are swept at start-up. Only media with a recognised audio,
+  video or image signature is passed to ffmpeg.
+- **Sexual content is withheld.** If a message involves minors (from the *low* threshold up), or is a
+  sexual image, sticker or video, Iris clears its text and transcript, removes it from the search index,
+  never quotes it in an alert, and refuses to reprocess it.
+- **Retention.** Messages older than the retention window are deleted hourly, except while an alert still
+  references them; alerts are deleted after their own window; finished jobs after 7 days.
+- **Alert-loop protection.** Iris recognises its own alerts by a signature over the whole alert text, so an
+  alert that reaches a monitored number is not classified, while a look-alike typed by someone else is.
+- Security headers (CSP, `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`) are set, and the
+  container runs as a non-root user.
+- Use HTTPS in front of Iris. Session cookies are marked `Secure` when `IRIS_PUBLIC_BASE_URL` starts with
+  `https://`.
+
+## Troubleshooting
+
+**Messages show `failed` with "OpenWA has no stored media…".** OpenWA could not download the media of a
+message the session *received*. This is a known bug in OpenWA before 0.24.0
+([#1739](https://github.com/rmyndharis/OpenWA/issues/1739)): upgrade OpenWA, then press **Reprocess** on the
+message. Text is unaffected.
+
+**"Destination address is not allowed" when registering the webhook.** OpenWA blocks private-network
+webhook targets. Put Iris behind a public hostname (reverse proxy or tunnel) and set `IRIS_PUBLIC_BASE_URL`
+to it.
+
+**No alert arrived.** Open the alert: **Delivery** says why (`not configured`, an OpenWA error, or
+`suppressed` by the per-chat cooldown). Check that the sender session is running, then **Resend**. The
+**Test** button under Settings → Alerts verifies the sender and recipient.
+
+**An instance shows "Last webhook: never".** OpenWA cannot reach `IRIS_PUBLIC_BASE_URL`, or the webhook was
+not registered. Check the URL from the OpenWA host.
+
+**A borderline message was flagged.** Context can raise a score: a casual "you're dead meat, lol" after a
+tense exchange may be judged harmful. Dismiss the alert, or raise the threshold for that category.
+
+**Everything is slow or jobs pile up.** The dashboard shows queue depth. Moderation is rate limited by
+OpenAI: Iris retries with backoff and honours `Retry-After`. Raise `IRIS_WORKERS` only if the queue stays long.
+
+## Development
+
+```bash
+uv sync
+uv run ruff check . && uv run ruff format --check . && uv run mypy
+uv run pytest                    # unit tests: no network, providers mocked
+uv run pytest -m integration     # real OpenAI (needs TEST_* variables, see .env.example)
+
+cd web
+npm ci && npm run lint && npm test && npm run build   # builds into ../app/static
+npm run dev                      # Vite dev server, proxies /api to :8080
+```
+
+Layout: `app/` is the FastAPI backend (`ingest/`, `openwa/`, `jobs/`, `media/`, `transcription/`,
+`classify/`, `alerts/`, `api/`), `web/` is the React portal, `tests/` mirrors it with real captured and
+sanitized OpenWA payloads under `tests/fixtures/openwa/`. New classification stages plug into
+`app/classify/stages.py`.
+
+CI runs lint, type checks, tests, the portal build, a security scan, and builds the image for **both**
+linux/amd64 and linux/arm64 on every pull request.
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE).
