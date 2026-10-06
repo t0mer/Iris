@@ -9,7 +9,15 @@ from pydantic import BaseModel
 from sqlalchemy import ColumnElement, and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Chat, Classification, Instance, Job, Message, MessageReceipt
+from app.db.models import (
+    Chat,
+    Classification,
+    Instance,
+    Job,
+    Message,
+    MessageReceipt,
+    MessageRevision,
+)
 from app.deps import get_db
 from app.jobs.queue import has_active_job
 from app.security.auth import current_user
@@ -44,6 +52,8 @@ class MessageOut(BaseModel):
     status: str
     verdict: str | None
     redacted: bool
+    edited_at: datetime | None
+    revoked_at: datetime | None
     kids: list[KidRef]
     failure: str | None  # why processing failed (latest failed/dead job), else null
 
@@ -68,8 +78,14 @@ class ClassificationOut(BaseModel):
     created_at: datetime
 
 
+class RevisionOut(BaseModel):
+    text: str
+    replaced_at: datetime
+
+
 class MessageDetail(MessageOut):
     classifications: list[ClassificationOut]
+    revisions: list[RevisionOut]  # earlier wordings, original first; empty when redacted
 
 
 def fts_query(q: str) -> str | None:
@@ -132,6 +148,8 @@ def _to_out(
         status=m.status,
         verdict=m.verdict,
         redacted=m.redacted,
+        edited_at=m.edited_at,
+        revoked_at=m.revoked_at,
         kids=kids,
         failure=failure,
     )
@@ -241,9 +259,21 @@ async def get_message(message_id: int, db: DB) -> MessageDetail:
         (await _kids(db, [m.id])).get(m.id, []),
         failure=(await _failures(db, [m])).get(m.id),
     )
+    revisions: list[MessageRevision] = []
+    if not m.redacted:
+        revisions = list(
+            (
+                await db.execute(
+                    select(MessageRevision)
+                    .where(MessageRevision.message_id == m.id)
+                    .order_by(MessageRevision.id)
+                )
+            ).scalars()
+        )
     return MessageDetail(
         **base.model_dump(),
         classifications=[ClassificationOut.model_validate(c, from_attributes=True) for c in cls],
+        revisions=[RevisionOut(text=r.text, replaced_at=r.replaced_at) for r in revisions],
     )
 
 
