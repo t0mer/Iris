@@ -13,7 +13,7 @@ from app.metrics import record_provider
 # Cloudflare in front of OpenWA rejects default library User-Agents.
 _UA = "iris/1.0"
 _TIMEOUT = httpx.Timeout(20.0)
-WEBHOOK_EVENTS = ["message.received", "message.sent"]
+WEBHOOK_EVENTS = ["message.received", "message.sent", "message.edited", "message.revoked"]
 
 
 class OpenWAError(Exception):
@@ -65,10 +65,34 @@ class OpenWAClient:
         return r.json() if r.content else None
 
     async def register_webhook(self, session_id: str, url: str, secret: str) -> str:
-        """Create a webhook for the session and return its id."""
+        """Subscribe the session's webhook for `url` to Iris's events and return its id.
+
+        A webhook already pointing at `url` is updated (its existing events are kept), so running
+        this again never creates a duplicate that would deliver every event twice.
+        """
+        base = f"/api/sessions/{quote(session_id, safe='')}/webhooks"
+        listed = await self._request("GET", base)
+        items = listed.get("data", listed) if isinstance(listed, dict) else listed
+        existing = (
+            next(
+                (w for w in items if isinstance(w, dict) and w.get("url") == url),
+                None,
+            )
+            if isinstance(items, list)
+            else None
+        )
+        if existing is not None and existing.get("id"):
+            have = existing.get("events")
+            events = sorted({*WEBHOOK_EVENTS, *(have if isinstance(have, list) else [])})
+            await self._request(
+                "PUT",
+                f"{base}/{quote(str(existing['id']), safe='')}",
+                json={"events": events, "secret": secret},
+            )
+            return str(existing["id"])
         data = await self._request(
             "POST",
-            f"/api/sessions/{quote(session_id, safe='')}/webhooks",
+            base,
             json={"url": url, "events": WEBHOOK_EVENTS, "secret": secret, "retryCount": 3},
         )
         body = data.get("data", data) if isinstance(data, dict) else {}

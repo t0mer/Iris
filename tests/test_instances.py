@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 import respx
@@ -46,6 +48,9 @@ async def test_patch_keeps_key_when_blank_and_rotate_changes_url(app_client) -> 
 @respx.mock
 async def test_register_webhook_success_and_private_address_hint(app_client) -> None:  # type: ignore[no-untyped-def]
     out = (await app_client.post("/api/instances", json=BODY)).json()
+    respx.get("https://wa.example.com/api/sessions/sess-1/webhooks").mock(
+        return_value=httpx.Response(200, json=[])
+    )
     route = respx.post("https://wa.example.com/api/sessions/sess-1/webhooks").mock(
         return_value=httpx.Response(201, json={"id": "wh-1"})
     )
@@ -54,12 +59,31 @@ async def test_register_webhook_success_and_private_address_hint(app_client) -> 
     sent = route.calls.last.request
     assert sent.headers["x-api-key"] == "super-secret-key"
     assert b"/webhooks/" in sent.content and b"secret" in sent.content
+    for event in (b"message.edited", b"message.revoked"):
+        assert event in sent.content
 
     route.mock(
         return_value=httpx.Response(400, json={"message": "Destination address is not allowed"})
     )
     r = await app_client.post(f"/api/instances/{out['id']}/register-webhook")
     assert r.status_code == 502 and "public hostname" in r.json()["detail"]
+
+
+@respx.mock
+async def test_register_webhook_updates_the_existing_one(app_client) -> None:  # type: ignore[no-untyped-def]
+    out = (await app_client.post("/api/instances", json=BODY)).json()
+    base = "https://wa.example.com/api/sessions/sess-1/webhooks"
+    other = {"id": "wh-other", "url": "https://elsewhere.example/hook", "events": ["*"]}
+    mine = {"id": "wh-1", "url": out["webhook_url"], "events": ["message.received", "group.join"]}
+    respx.get(base).mock(return_value=httpx.Response(200, json={"data": [other, mine]}))
+    put = respx.put(f"{base}/wh-1").mock(return_value=httpx.Response(200, json={}))
+    create = respx.post(base).mock(return_value=httpx.Response(201, json={"id": "new"}))
+    r = await app_client.post(f"/api/instances/{out['id']}/register-webhook")
+    assert r.json() == {"webhook_id": "wh-1"}
+    assert not create.called
+    body = json.loads(put.calls.last.request.content)
+    assert {"message.edited", "message.revoked", "group.join"} <= set(body["events"])
+    assert body["secret"]
 
 
 @pytest.mark.parametrize("bad", [{"kid_name": ""}, {}])
@@ -91,6 +115,9 @@ async def test_changing_base_url_requires_reentering_key(app_client) -> None:  #
 @respx.mock
 async def test_upstream_error_text_not_reflected_and_odd_json_survives(app_client) -> None:  # type: ignore[no-untyped-def]
     out = (await app_client.post("/api/instances", json=BODY)).json()
+    respx.get("https://wa.example.com/api/sessions/sess-1/webhooks").mock(
+        return_value=httpx.Response(200, json=[])
+    )
     route = respx.post("https://wa.example.com/api/sessions/sess-1/webhooks")
     route.mock(return_value=httpx.Response(500, text="SECRET INTERNAL BODY"))
     r = await app_client.post(f"/api/instances/{out['id']}/register-webhook")
@@ -106,6 +133,9 @@ async def test_session_id_is_path_quoted(app_client) -> None:  # type: ignore[no
     out = (
         await app_client.post("/api/instances", json={**BODY, "openwa_instance_id": "../admin"})
     ).json()
+    respx.get(url__regex=r"https://wa\.example\.com/api/sessions/.*/webhooks").mock(
+        return_value=httpx.Response(200, json=[])
+    )
     route = respx.post(url__regex=r"https://wa\.example\.com/api/sessions/.*/webhooks").mock(
         return_value=httpx.Response(201, json={"id": "w"})
     )
