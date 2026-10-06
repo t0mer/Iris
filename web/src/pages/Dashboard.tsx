@@ -110,19 +110,20 @@ function headline(s: Stats, items: Item[]) {
 }
 
 function Stat({ label, value, to }: { label: string; value: number; to?: string }) {
-  const inner = (
-    <>
-      <dd className="tabular text-2xl font-semibold leading-none">{value}</dd>
+  // <dl> may only hold <dt>/<dd> groups, so a linked stat puts its (stretched) link inside the <dd>.
+  return (
+    <div className="relative flex flex-col-reverse gap-1.5 px-4 py-3 hover:bg-surface-2/60 sm:px-5">
       <dt className="text-sm text-muted-foreground">{label}</dt>
-    </>
-  )
-  const cls = 'flex flex-col-reverse gap-1.5 px-4 py-3 sm:px-5'
-  return to ? (
-    <Link to={to} className={`${cls} hover:bg-surface-2/60`}>
-      {inner}
-    </Link>
-  ) : (
-    <div className={cls}>{inner}</div>
+      <dd className="tabular text-2xl font-semibold leading-none">
+        {to ? (
+          <Link to={to} aria-label={`${label}: ${value}`} className="after:absolute after:inset-0">
+            {value}
+          </Link>
+        ) : (
+          value
+        )}
+      </dd>
+    </div>
   )
 }
 

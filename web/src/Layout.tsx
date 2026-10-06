@@ -101,7 +101,8 @@ function AccountMenu({ wide, version }: { wide: boolean; version?: string }) {
             'flex min-h-11 w-full items-center gap-3 rounded-md px-2 text-start text-sm hover:bg-surface-2',
             !wide && 'justify-center',
           )}
-          aria-label="Account and appearance"
+          title="Account and appearance"
+          aria-label={wide ? undefined : 'Account and appearance'}
         >
           <span className="grid size-8 shrink-0 place-items-center rounded-full bg-primary-soft text-sm font-semibold text-primary">
             {(me?.username ?? '?').slice(0, 1).toUpperCase()}

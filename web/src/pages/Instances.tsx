@@ -96,14 +96,18 @@ function PhoneCard({ i }: { i: Instance }) {
         )}
       </p>
       <div className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium">Webhook address</span>
+        <span aria-hidden className="text-sm font-medium">
+          Webhook address
+        </span>
         <div className="flex items-stretch gap-2">
-          <code
-            className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded-md bg-surface-2 px-3 py-2.5 text-xs"
+          <Input
+            readOnly
             dir="ltr"
-          >
-            {i.webhook_url}
-          </code>
+            aria-label="Webhook address"
+            value={i.webhook_url}
+            onFocus={(e) => e.currentTarget.select()}
+            className="min-w-0 flex-1 font-mono text-xs"
+          />
           <Button
             variant="outline"
             size="icon"
