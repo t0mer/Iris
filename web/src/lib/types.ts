@@ -168,3 +168,37 @@ export interface Timeline {
   timezone: string
   days: DayActivity[]
 }
+
+export interface DbConfigInfo {
+  kind: 'sqlite' | 'postgresql' | 'mysql'
+  host: string
+  port: number | null
+  name: string
+  user: string
+  tls: boolean
+  password_set: boolean
+}
+
+export interface CopyState {
+  state: 'idle' | 'running' | 'done' | 'failed'
+  table: string
+  copied: Record<string, number>
+  error: string | null
+}
+
+export interface DatabaseStatus {
+  running: DbConfigInfo
+  running_source: 'env' | 'file' | 'default'
+  saved: DbConfigInfo
+  restart_required: boolean
+  env_override: boolean
+  copy_job: CopyState
+}
+
+export interface DatabaseProbe {
+  ok: boolean
+  detail: string
+  version: string | null
+  empty: boolean | null
+  warning: string | null
+}

@@ -4,6 +4,7 @@ import {
   Brain,
   CheckCircle2,
   Clock,
+  Database,
   Eye,
   KeyRound,
   Loader2,
@@ -11,10 +12,11 @@ import {
   XCircle,
   type LucideIcon,
 } from 'lucide-react'
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useState, type FormEvent } from 'react'
 import { toast } from 'sonner'
 import { PageHeader } from '../components/PageHeader'
 import { PageLoading } from '../components/PageLoading'
+import { Section } from '../components/Section'
 import { QueryError } from '../components/QueryError'
 import { Button } from '../components/ui/button'
 import { ConfirmDialog } from '../components/ui/dialog'
@@ -24,6 +26,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { api, ApiError } from '../lib/api'
 import type { Instance, ThresholdRow } from '../lib/types'
 import { overridesFrom } from '../lib/thresholds'
+import { DatabaseTab } from './DatabaseTab'
 
 type Secret = { set: boolean }
 interface Values {
@@ -54,7 +57,15 @@ interface TestResult {
 }
 type Change = string | number | boolean | null | Record<string, { low: number; high: number }>
 
-const TABS = ['Providers', 'Classification', 'Alerts', 'Scope', 'Retention', 'Account'] as const
+const TABS = [
+  'Providers',
+  'Classification',
+  'Alerts',
+  'Scope',
+  'Retention',
+  'Database',
+  'Account',
+] as const
 type Tab = (typeof TABS)[number]
 const SECRETS = ['openai.api_key', 'transcription.cloudflare_api_token']
 const NUMBERS = [
@@ -84,27 +95,8 @@ const ICON: Record<Tab, LucideIcon> = {
   Alerts: Bell,
   Scope: Eye,
   Retention: Clock,
+  Database: Database,
   Account: KeyRound,
-}
-
-function Section({
-  title,
-  description,
-  children,
-}: {
-  title: string
-  description?: string
-  children: ReactNode
-}) {
-  return (
-    <section className="flex flex-col gap-4 rounded-lg border bg-surface p-4 sm:p-5">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold">{title}</h2>
-        {description && <p className="max-w-prose text-sm text-muted-foreground">{description}</p>}
-      </div>
-      {children}
-    </section>
-  )
 }
 
 function SecretInput({
@@ -642,11 +634,15 @@ export function Settings() {
             </Section>
           </TabsContent>
 
+          <TabsContent value="Database">
+            <DatabaseTab />
+          </TabsContent>
+
           <TabsContent value="Account">
             <Account />
           </TabsContent>
 
-          {dirty && tab !== 'Account' && (
+          {dirty && tab !== 'Account' && tab !== 'Database' && (
             <div className="sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-20 flex items-center justify-between gap-3 rounded-lg border bg-surface p-3 shadow-overlay md:bottom-4">
               <p className="text-sm text-muted-foreground">You have unsaved changes.</p>
               <div className="flex gap-2">
