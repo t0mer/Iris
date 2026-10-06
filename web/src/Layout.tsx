@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Check, LogOut, Monitor, Moon, MoreHorizontal, Sun } from 'lucide-react'
-import { Suspense, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { IrisMark } from './components/IrisMark'
 import { PageLoading } from './components/PageLoading'
@@ -301,6 +301,17 @@ function PhoneChrome({ stats, version }: { stats?: Stats; version?: string }) {
 
 export function Layout() {
   const desktop = useIsDesktop()
+  const { pathname } = useLocation()
+  const mainRef = useRef<HTMLElement>(null)
+  const firstRender = useRef(true)
+  // After a route change, move focus to the page so keyboard and screen-reader users land on it.
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false
+      return
+    }
+    mainRef.current?.focus({ preventScroll: true })
+  }, [pathname])
   const { stats, version } = useShellData()
   return (
     <div className="min-h-dvh md:flex">
@@ -317,6 +328,7 @@ export function Layout() {
       )}
       <div className="flex min-w-0 flex-1 flex-col">
         <main
+          ref={mainRef}
           id="main"
           tabIndex={-1}
           className="mx-auto w-full max-w-6xl flex-1 px-4 pb-24 pt-5 outline-none md:px-8 md:pb-10 md:pt-8"

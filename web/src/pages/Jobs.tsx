@@ -10,6 +10,7 @@ import { Skeleton } from '../components/ui/skeleton'
 import { api, ApiError } from '../lib/api'
 import { relativeTime } from '../lib/format'
 import type { Job } from '../lib/types'
+import { QueryError } from '../components/QueryError'
 
 const WHAT: Record<string, string> = {
   process_message: 'Checking a message',
@@ -18,7 +19,7 @@ const WHAT: Record<string, string> = {
 
 export function Jobs() {
   const qc = useQueryClient()
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['jobs'],
     queryFn: () => api<Job[]>('/api/jobs'),
     refetchInterval: 60_000,
@@ -38,6 +39,7 @@ export function Jobs() {
         description="Work that failed or ran out of attempts. Fix the cause shown, then try again."
       />
       {isLoading && <Skeleton className="h-32" />}
+      {isError && <QueryError what="the jobs" onRetry={() => void refetch()} />}
       <ul className="divide-y overflow-hidden rounded-lg border bg-surface">
         {data?.map((j) => (
           <li key={j.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3.5">

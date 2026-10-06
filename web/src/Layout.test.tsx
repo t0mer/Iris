@@ -101,3 +101,16 @@ test('the page can be reached with the skip link and has a main landmark', async
   )
   expect(screen.getByRole('main')).toHaveTextContent('page body')
 })
+
+test('moves focus to the page after navigating, but not on the first load', async () => {
+  setViewport(true)
+  renderLayout('/alerts')
+  const main = await screen.findByRole('main')
+  expect(main).not.toHaveFocus() // the first load leaves focus where the browser put it
+  await userEvent.click(
+    within(await screen.findByRole('navigation', { name: 'Main' })).getByRole('link', {
+      name: /Messages/,
+    }),
+  )
+  expect(main).toHaveFocus()
+})

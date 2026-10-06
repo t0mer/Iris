@@ -28,3 +28,13 @@ test('pages forward and back and disables the ends', async () => {
   expect(screen.getByText('51 to 60 of 60 messages')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /Next/ })).toBeDisabled()
 })
+
+test('a page past the end explains itself and still offers a way back', async () => {
+  const onPage = vi.fn()
+  render(
+    <Pagination page={4} pageSize={25} total={12} noun={['message', 'messages']} onPage={onPage} />,
+  )
+  expect(screen.getByText(/Nothing on page 4/)).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: /Previous/ }))
+  expect(onPage).toHaveBeenCalledWith(3)
+})

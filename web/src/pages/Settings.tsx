@@ -14,7 +14,10 @@ import {
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { PageHeader } from '../components/PageHeader'
+import { PageLoading } from '../components/PageLoading'
+import { QueryError } from '../components/QueryError'
 import { Button } from '../components/ui/button'
+import { ConfirmDialog } from '../components/ui/dialog'
 import { Field, Input, Select } from '../components/ui/field'
 import { Switch } from '../components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
@@ -59,6 +62,13 @@ const NUMBERS = [
   'retention.message_days',
   'retention.alert_days',
 ]
+const NUMBER_LABELS: Record<string, string> = {
+  'alerts.cooldown_minutes': 'Cooldown per chat',
+  'classification.context_window_size': 'Messages of context',
+  'classification.context_max_age_hours': 'Context goes back',
+  'retention.message_days': 'Keep messages for',
+  'retention.alert_days': 'Keep alerts for',
+}
 const BOOLEANS = [
   'alerts.alert_on_review',
   'scope.monitor_from_me',
@@ -115,9 +125,13 @@ function SecretInput({
         onChange={(e) => onChange(e.target.value)}
       />
       {isSet && (
-        <Button variant="outline" onClick={onClear}>
-          Clear
-        </Button>
+        <ConfirmDialog
+          trigger={<Button variant="outline">Clear</Button>}
+          title="Remove the saved key?"
+          description="Iris stops using it until you enter a new one. Checks that need it will fail in the meantime."
+          confirmLabel="Remove key"
+          onConfirm={onClear}
+        />
       )}
     </span>
   )
@@ -297,7 +311,10 @@ function Account() {
 
 export function Settings() {
   const qc = useQueryClient()
-  const { data } = useQuery({ queryKey: ['settings'], queryFn: () => api<Values>('/api/settings') })
+  const { data, isError, refetch } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => api<Values>('/api/settings'),
+  })
   const { data: instances } = useQuery({
     queryKey: ['instances'],
     queryFn: () => api<Instance[]>('/api/instances'),
@@ -312,7 +329,14 @@ export function Settings() {
     Record<string, { low: string; high: string }>
   >({})
   const [saving, setSaving] = useState(false)
-  if (!data) return null
+  if (isError)
+    return (
+      <div className="flex flex-col gap-5">
+        <PageHeader title="Settings" />
+        <QueryError what="the settings" onRetry={() => void refetch()} />
+      </div>
+    )
+  if (!data) return <PageLoading />
 
   // Secrets are write-only: the API only says whether they are set, so the field starts blank.
   const get = (k: keyof Values): string => {
@@ -343,13 +367,24 @@ export function Settings() {
     }
   }
 
-  function thresholdOverrides(): Record<string, { low: number; high: number }> | null {
+  /** The thresholds that differ from the defaults, or 'invalid' if any typed value cannot be used. */
+  function thresholdOverrides(): Record<string, { low: number; high: number }> | null | 'invalid' {
     if (!thresholdRows || Object.keys(thresholdEdits).length === 0) return null
     const out: Record<string, { low: number; high: number }> = {}
     for (const r of thresholdRows) {
       const e = thresholdEdits[r.category]
       const low = e ? Number(e.low) : r.low
       const high = e ? Number(e.high) : r.high
+      const blank = e && (e.low.trim() === '' || e.high.trim() === '')
+      if (
+        blank ||
+        !Number.isFinite(low) ||
+        !Number.isFinite(high) ||
+        low < 0 ||
+        high > 1 ||
+        low >= high
+      )
+        return 'invalid'
       if (low !== r.default_low || high !== r.default_high) out[r.category] = { low, high }
     }
     return out
@@ -359,14 +394,29 @@ export function Settings() {
     const changes: Record<string, Change> = {}
     for (const [k, v] of Object.entries(edit)) {
       if (SECRETS.includes(k) && v === '') continue // blank secret = keep
-      if (NUMBERS.includes(k)) changes[k] = Number(v)
-      else if (k === 'alerts.sender_instance_id') changes[k] = v === '' ? null : Number(v)
+      if (NUMBERS.includes(k)) {
+        if (v.trim() === '' || !Number.isFinite(Number(v))) {
+          toast.error(`Enter a number for "${NUMBER_LABELS[k] ?? k}".`)
+          return
+        }
+        changes[k] = Number(v)
+      } else if (k === 'alerts.sender_instance_id') changes[k] = v === '' ? null : Number(v)
       else if (BOOLEANS.includes(k)) changes[k] = v === 'true'
       else changes[k] = v
     }
     const overrides = thresholdOverrides()
+    if (overrides === 'invalid') {
+      toast.error(
+        'Thresholds must be numbers from 0 to 1, with "needs a look" lower than "harmful".',
+      )
+      return
+    }
     if (overrides) changes['classification.thresholds'] = overrides
-    void save(changes)
+    if (Object.keys(changes).length === 0) {
+      setEdit({}) // nothing but blank secrets was pending: there is nothing to send
+      return
+    }
+    void save(changes, Object.keys(edit)) // every processed key leaves the draft, blank secrets too
   }
 
   const dirty = Object.keys(edit).length > 0 || Object.keys(thresholdEdits).length > 0

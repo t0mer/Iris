@@ -9,9 +9,10 @@ import { Skeleton } from '../components/ui/skeleton'
 import { api } from '../lib/api'
 import { relativeTime } from '../lib/format'
 import type { Chat } from '../lib/types'
+import { QueryError } from '../components/QueryError'
 
 export function Chats() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['chats'],
     queryFn: () => api<Chat[]>('/api/chats'),
     refetchInterval: 60_000,
@@ -23,6 +24,7 @@ export function Chats() {
         description="Every conversation and group Iris has seen, and which phones are in them."
       />
       {isLoading && <Skeleton className="h-48" />}
+      {isError && <QueryError what="your chats" onRetry={() => void refetch()} />}
       <ul className="divide-y overflow-hidden rounded-lg border bg-surface">
         {data?.map((c) => (
           <li key={c.id}>

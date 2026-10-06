@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { Toaster } from '../components/ui/toaster'
 import { Settings } from './Settings'
 
 const settings = {
@@ -49,6 +50,7 @@ function renderPage() {
   render(
     <QueryClientProvider client={new QueryClient()}>
       <Settings />
+      <Toaster />
     </QueryClientProvider>,
   )
   return calls
@@ -122,4 +124,66 @@ test('password change checks the confirmation before calling the API', async () 
   await userEvent.click(screen.getByRole('button', { name: 'Change password' }))
   expect(await screen.findByText(/do not match/)).toBeInTheDocument()
   expect(calls.some((c) => c.url === '/api/auth/password')).toBe(false)
+})
+
+// --- regression tests for the review findings -------------------------------------------------
+
+test('a failed settings request shows what failed and offers to try again', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response('{}', { status: 500 })),
+  )
+  render(
+    <QueryClientProvider
+      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+    >
+      <Settings />
+    </QueryClientProvider>,
+  )
+  expect(await screen.findByRole('alert')).toHaveTextContent(/Could not load the settings/)
+  expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+})
+
+test('an untouched secret field leaves nothing pending and sends nothing', async () => {
+  const calls = renderPage()
+  await userEvent.type(await screen.findByPlaceholderText(/saved, leave blank/), 'x')
+  await userEvent.clear(screen.getByPlaceholderText(/saved, leave blank/)) // back to blank = keep the saved key
+  await userEvent.click(await screen.findByRole('button', { name: 'Save' }))
+  expect(calls.some((c) => c.url === '/api/settings' && c.body)).toBe(false) // nothing to send
+  expect(screen.queryByText('You have unsaved changes.')).not.toBeInTheDocument()
+})
+
+test('an emptied number is refused with a message instead of being saved as zero', async () => {
+  const calls = renderPage()
+  await userEvent.click(await screen.findByRole('tab', { name: 'Retention' }))
+  const days = await screen.findByLabelText(/Keep messages for/)
+  await userEvent.clear(days)
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  expect(await screen.findByText(/Enter a number for "Keep messages for"/)).toBeInTheDocument()
+  expect(calls.some((c) => c.url === '/api/settings' && c.body)).toBe(false)
+})
+
+test('thresholds that are not a valid range are refused before they are sent', async () => {
+  const calls = renderPage()
+  await userEvent.click(await screen.findByRole('tab', { name: 'Classification' }))
+  const low = await screen.findByLabelText('violence low')
+  await userEvent.clear(low)
+  await userEvent.type(low, '0.9') // low above high (0.7)
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  expect(await screen.findByText(/Thresholds must be numbers from 0 to 1/)).toBeInTheDocument()
+  expect(calls.some((c) => c.url === '/api/settings' && c.body)).toBe(false)
+})
+
+test('clearing a saved key asks first and sends nothing when cancelled', async () => {
+  const calls = renderPage()
+  await userEvent.click(await screen.findByRole('button', { name: 'Clear' }))
+  const dialog = await screen.findByRole('alertdialog', { name: 'Remove the saved key?' })
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+  expect(calls.some((c) => c.url === '/api/settings' && c.body)).toBe(false)
+  await userEvent.click(screen.getByRole('button', { name: 'Clear' }))
+  await userEvent.click(
+    within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Remove key' }),
+  )
+  const put = calls.find((c) => c.url === '/api/settings' && c.body)
+  expect(JSON.parse(put!.body!).settings).toEqual({ 'openai.api_key': null })
 })

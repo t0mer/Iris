@@ -11,7 +11,7 @@ const days = [
 test('has a text summary, a legend with every series named, and one labelled group per day', () => {
   render(<ActivityChart days={days} />)
   expect(
-    screen.getByRole('img', { name: /Busiest day Oct 6 with 8 messages, 2 harmful/ }),
+    screen.getByRole('group', { name: /Busiest day Oct 6 with 8 messages, 2 harmful/ }),
   ).toBeInTheDocument()
   for (const label of ['Fine', 'Worth a look', 'Harmful'])
     expect(screen.getByText(label)).toBeInTheDocument()
@@ -26,11 +26,12 @@ test('every day can be focused from the keyboard and shows its numbers in a tool
   const day = screen.getByRole('img', { name: /^Oct 6:/ })
   expect(day).toHaveAttribute('tabindex', '0')
   fireEvent.focus(day)
-  const tip = screen.getByRole('status')
+  const tip = screen.getByText('Alerts sent').closest('div')!
+  expect(tip).toHaveAttribute('aria-hidden', 'true') // visual only: the labels and the table carry the data
   expect(within(tip).getByText('Alerts sent').nextSibling).toHaveTextContent('2')
   expect(within(tip).getByText('Not checked').nextSibling).toHaveTextContent('1')
   fireEvent.blur(day)
-  expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  expect(screen.queryByText('Alerts sent')).not.toBeInTheDocument()
 })
 
 test('the same numbers are available as a table, including what the picture leaves out', async () => {
@@ -48,5 +49,24 @@ test('the same numbers are available as a table, including what the picture leav
 test('an empty period still renders without errors', () => {
   const empty = [{ date: '2026-10-06', safe: 0, review: 0, harmful: 0, other: 0, alerts: 0 }]
   render(<ActivityChart days={empty} />)
-  expect(screen.getByRole('img', { name: /No messages yet/ })).toBeInTheDocument()
+  expect(screen.getByRole('group', { name: /No messages yet/ })).toBeInTheDocument()
+})
+
+test('keeps observing whichever element holds the chart after switching to the table and back', async () => {
+  const observed: Element[] = []
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe(el: Element) {
+        observed.push(el)
+      }
+      unobserve() {}
+      disconnect() {}
+    },
+  )
+  const { container } = render(<ActivityChart days={days} />)
+  await userEvent.click(screen.getByRole('button', { name: 'Show as table' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Show chart' }))
+  const holder = container.querySelector('svg')!.parentElement!
+  expect(observed.at(-1)).toBe(holder) // the live chart container is the one being observed
 })

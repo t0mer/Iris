@@ -27,7 +27,7 @@ export function DialogContent({
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className={overlay} />
       <DialogPrimitive.Content
-        aria-describedby={description ? undefined : undefined}
+        {...(description ? {} : { 'aria-describedby': undefined })}
         className={cn(
           'fixed inset-x-0 bottom-0 z-50 flex max-h-[88dvh] flex-col gap-4 overflow-y-auto rounded-t-xl border border-border bg-surface p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-overlay',
           'md:inset-x-auto md:bottom-auto md:left-1/2 md:top-1/2 md:w-full md:max-w-md md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-lg',
@@ -44,7 +44,7 @@ export function DialogContent({
             )}
           </div>
           <DialogPrimitive.Close asChild>
-            <Button variant="ghost" size="icon" aria-label="Close" className="-mr-2 -mt-2">
+            <Button variant="ghost" size="icon" aria-label="Close" className="-me-2 -mt-2">
               <X />
             </Button>
           </DialogPrimitive.Close>

@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from 'react'
+
 export type Theme = 'system' | 'light' | 'dark'
 const KEY = 'iris-theme'
 const QUERY = '(prefers-color-scheme: dark)'
@@ -32,4 +34,17 @@ export function watchSystemTheme(): void {
   window.matchMedia?.(QUERY).addEventListener?.('change', () => {
     if (getTheme() === 'system') applyTheme('system')
   })
+}
+
+/** True while the page is in dark mode, following the toggle and the system preference. */
+export function useIsDark(): boolean {
+  return useSyncExternalStore(
+    (notify) => {
+      const observer = new MutationObserver(notify)
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+      return () => observer.disconnect()
+    },
+    () => document.documentElement.classList.contains('dark'),
+    () => false,
+  )
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { cn } from '../lib/cn'
 import { shortDate } from '../lib/format'
 import type { DayActivity } from '../lib/types'
@@ -13,19 +13,20 @@ const GAP = 2 // surface-coloured spacer between stacked segments
 const H = 200
 const PAD = { top: 12, right: 8, bottom: 28, left: 34 }
 
+/** Tracks an element's width. A callback ref (not a mount-time effect) so it follows the element
+ * when it is unmounted and remounted, as it is when the chart toggles to a table and back. */
 function useWidth(fallback = 640) {
-  const ref = useRef<HTMLDivElement>(null)
+  const [el, setEl] = useState<HTMLDivElement | null>(null)
   const [w, setW] = useState(fallback)
   useEffect(() => {
-    const el = ref.current
     if (!el) return
     const update = () => el.clientWidth > 0 && setW(el.clientWidth)
     update()
     const ro = new ResizeObserver(update)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [])
-  return [ref, w] as const
+  }, [el])
+  return [setEl, w] as const
 }
 
 const NICE = [4, 8, 10, 20, 40, 50, 100, 200, 400, 500, 1000, 2000, 5000]
@@ -115,7 +116,13 @@ export function ActivityChart({ days }: { days: DayActivity[] }) {
         </div>
       ) : (
         <div ref={ref} className="relative">
-          <svg width="100%" height={H} role="img" aria-label={summary} className="overflow-visible">
+          <svg
+            width="100%"
+            height={H}
+            role="group"
+            aria-label={summary}
+            className="overflow-visible"
+          >
             {[0, 0.5, 1].map((f) => (
               <g key={f}>
                 <line
@@ -205,7 +212,7 @@ export function ActivityChart({ days }: { days: DayActivity[] }) {
           </svg>
           {hover && (
             <div
-              role="status"
+              aria-hidden
               className={cn(
                 'pointer-events-none absolute top-0 z-10 w-44 rounded-md border bg-surface p-2.5 text-xs shadow-overlay',
               )}

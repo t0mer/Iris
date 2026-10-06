@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Search, SearchX } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { EmptyState } from '../components/EmptyState'
 import { Chips, FilterBar } from '../components/FilterBar'
 import { Highlight } from '../components/Highlight'
@@ -15,6 +15,7 @@ import { Field, Input, Select } from '../components/ui/field'
 import { Skeleton } from '../components/ui/skeleton'
 import { api } from '../lib/api'
 import { dateTime } from '../lib/format'
+import { useUrlState } from '../lib/urlState'
 import type { Instance, MessagePage } from '../lib/types'
 
 const TYPES = ['text', 'image', 'audio', 'voice', 'video', 'sticker', 'document', 'other']
@@ -41,32 +42,39 @@ function since(when: string): string | null {
 }
 
 export function Messages() {
-  const [sp, setSp] = useSearchParams()
-  const get = (k: string) => sp.get(k) ?? ''
-  const page = Number(sp.get('page') ?? '1')
-  const update = (changes: Record<string, string>) => {
-    const next = new URLSearchParams(sp)
-    for (const [k, v] of Object.entries(changes)) {
-      if (v) next.set(k, v)
-      else next.delete(k)
-    }
-    if (!('page' in changes)) next.delete('page')
-    setSp(next, { replace: true })
-  }
+  const { get, page, update, clear } = useUrlState()
 
-  // The search box edits locally and reaches the URL (and the server) after a short pause.
+  // The search box edits locally and reaches the address (and the server) after a short pause.
+  // `pushed` is what we last wrote, so an outside change (a link, back) re-syncs the box without
+  // fighting the user's typing.
   const [q, setQ] = useState(get('q'))
+  const pushed = useRef(get('q'))
   useEffect(() => {
-    const t = setTimeout(() => get('q') !== q && update({ q }), 300)
+    const t = setTimeout(() => {
+      if (pushed.current !== q) {
+        pushed.current = q
+        update({ q })
+      }
+    }, 300)
     return () => clearTimeout(t)
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [q])
+  }, [q, update])
+  const urlQ = get('q')
+  useEffect(() => {
+    if (urlQ !== pushed.current) {
+      pushed.current = urlQ
+      setQ(urlQ)
+    }
+  }, [urlQ])
+
+  // Computed once per choice, not per render: a changing timestamp would change the query key and
+  // refetch forever.
+  const when = get('when')
+  const from = useMemo(() => since(when), [when])
 
   const params = new URLSearchParams({ page: String(page), page_size: String(PAGE_SIZE) })
   for (const k of ['q', 'instance_id', 'type', 'verdict', 'sender'])
     if (get(k)) params.set(k, get(k))
   if (get('chat')) params.set('chat_id', get('chat'))
-  const from = since(get('when'))
   if (from) params.set('from', from)
 
   const { data: instances } = useQuery({
@@ -105,7 +113,7 @@ export function Messages() {
         active={active}
         onClear={() => {
           setQ('')
-          setSp(new URLSearchParams(), { replace: true })
+          clear()
         }}
         leading={
           <Chips
@@ -207,7 +215,7 @@ export function Messages() {
                     variant="outline"
                     onClick={() => {
                       setQ('')
-                      setSp(new URLSearchParams(), { replace: true })
+                      clear()
                     }}
                   >
                     Clear search and filters

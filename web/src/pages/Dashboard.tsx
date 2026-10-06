@@ -18,6 +18,7 @@ import { PageHeader } from '../components/PageHeader'
 import { Skeleton } from '../components/ui/skeleton'
 import { api } from '../lib/api'
 import type { AlertPage, Stats, Timeline } from '../lib/types'
+import { QueryError } from '../components/QueryError'
 
 const REFRESH_MS = 60_000
 
@@ -226,7 +227,9 @@ export function Dashboard() {
         <h2 id="activity" className="text-lg font-semibold">
           Activity, last 14 days
         </h2>
-        {timeline.isLoading ? (
+        {timeline.isError ? (
+          <QueryError what="the activity chart" onRetry={() => void timeline.refetch()} />
+        ) : timeline.isLoading ? (
           <Skeleton className="h-52" />
         ) : days.length > 0 ? (
           <ActivityChart days={days} />

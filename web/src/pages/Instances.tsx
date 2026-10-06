@@ -14,6 +14,7 @@ import { Switch } from '../components/ui/switch'
 import { api, ApiError } from '../lib/api'
 import { relativeTime } from '../lib/format'
 import type { Instance } from '../lib/types'
+import { QueryError } from '../components/QueryError'
 
 const fail = (fallback: string) => (e: unknown) =>
   toast.error(e instanceof ApiError ? e.message : fallback)
@@ -231,7 +232,7 @@ function AddPhone() {
 }
 
 export function Instances() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['instances'],
     queryFn: () => api<Instance[]>('/api/instances'),
     refetchInterval: 60_000,
@@ -244,6 +245,7 @@ export function Instances() {
         actions={<AddPhone />}
       />
       {isLoading && <Skeleton className="h-48" />}
+      {isError && <QueryError what="your phones" onRetry={() => void refetch()} />}
       <ul className="flex flex-col gap-4">
         {data?.map((i) => (
           <PhoneCard key={i.id} i={i} />

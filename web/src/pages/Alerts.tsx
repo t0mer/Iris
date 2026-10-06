@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { BellRing, Settings } from 'lucide-react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { AlertRow } from '../components/AlertRow'
 import { EmptyState } from '../components/EmptyState'
 import { Chips, FilterBar } from '../components/FilterBar'
@@ -11,6 +11,7 @@ import { Field, Select } from '../components/ui/field'
 import { Skeleton } from '../components/ui/skeleton'
 import { api } from '../lib/api'
 import { CATEGORIES } from '../lib/categories'
+import { useUrlState } from '../lib/urlState'
 import type { AlertPage, Instance } from '../lib/types'
 
 const STATUS = [
@@ -22,20 +23,10 @@ const STATUS = [
 const PAGE_SIZE = 25
 
 export function Alerts() {
-  const [sp, setSp] = useSearchParams()
-  const status = sp.get('status') ?? ''
-  const kid = sp.get('instance_id') ?? ''
-  const category = sp.get('category') ?? ''
-  const page = Number(sp.get('page') ?? '1')
-  const update = (changes: Record<string, string>) => {
-    const next = new URLSearchParams(sp)
-    for (const [k, v] of Object.entries(changes)) {
-      if (v) next.set(k, v)
-      else next.delete(k)
-    }
-    if (!('page' in changes)) next.delete('page')
-    setSp(next, { replace: true })
-  }
+  const { get, page, update, clear } = useUrlState()
+  const status = get('status')
+  const kid = get('instance_id')
+  const category = get('category')
 
   const params = new URLSearchParams({ page: String(page), page_size: String(PAGE_SIZE) })
   for (const [k, v] of [
@@ -78,7 +69,7 @@ export function Alerts() {
 
       <FilterBar
         active={active}
-        onClear={() => setSp(new URLSearchParams(), { replace: true })}
+        onClear={clear}
         leading={
           <Chips
             label="Status"
@@ -131,10 +122,7 @@ export function Alerts() {
                 icon={BellRing}
                 title="No alerts match these filters"
                 action={
-                  <Button
-                    variant="outline"
-                    onClick={() => setSp(new URLSearchParams(), { replace: true })}
-                  >
+                  <Button variant="outline" onClick={clear}>
                     Clear filters
                   </Button>
                 }

@@ -12,10 +12,11 @@ import { Skeleton } from '../components/ui/skeleton'
 import { api, ApiError } from '../lib/api'
 import { relativeTime } from '../lib/format'
 import type { ReviewPage } from '../lib/types'
+import { QueryError } from '../components/QueryError'
 
 export function Review() {
   const qc = useQueryClient()
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['review'],
     queryFn: () => api<ReviewPage>('/api/review'),
   })
@@ -41,6 +42,7 @@ export function Review() {
         description="Messages Iris could not decide on, even with the chat around them. Your call."
       />
       {isLoading && <Skeleton className="h-40" />}
+      {isError && <QueryError what="the review queue" onRetry={() => void refetch()} />}
       {data && data.items.length === 0 && (
         <div className="rounded-lg border bg-surface">
           <EmptyState icon={ListChecks} title="Nothing to review">

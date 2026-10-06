@@ -14,18 +14,21 @@ import { api, ApiError } from '../lib/api'
 import { cn } from '../lib/cn'
 import { dateTime } from '../lib/format'
 import type { Message, MessageDetail } from '../lib/types'
+import { QueryError } from '../components/QueryError'
 
 export function MessageContext() {
   const { id } = useParams()
   const qc = useQueryClient()
-  const { data: detail } = useQuery({
+  const detailQuery = useQuery({
     queryKey: ['message', id],
     queryFn: () => api<MessageDetail>(`/api/messages/${id}`),
   })
-  const { data: context } = useQuery({
+  const detail = detailQuery.data
+  const contextQuery = useQuery({
     queryKey: ['message-context', id],
     queryFn: () => api<Message[]>(`/api/messages/${id}/context`),
   })
+  const context = contextQuery.data
   const target = useRef<HTMLLIElement>(null)
   const panel = useRef<HTMLOListElement>(null)
   // Centre the message inside the chat panel only; the page itself must not jump.
@@ -79,7 +82,16 @@ export function MessageContext() {
         </div>
       )}
 
-      {!context && <Skeleton className="h-64" />}
+      {!context && !contextQuery.isError && <Skeleton className="h-64" />}
+      {(detailQuery.isError || contextQuery.isError) && (
+        <QueryError
+          what="this conversation"
+          onRetry={() => {
+            void detailQuery.refetch()
+            void contextQuery.refetch()
+          }}
+        />
+      )}
       <ol
         ref={panel}
         tabIndex={0}
