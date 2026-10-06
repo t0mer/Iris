@@ -5,7 +5,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import ColumnElement, and_, exists, func, select, text
+from sqlalchemy import ColumnElement, and_, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts.service import (
@@ -23,6 +23,7 @@ from app.api.messages import (
     _load,
     _to_out,
 )
+from app.db.jsonq import json_array_contains
 from app.db.models import Alert, Classification, Message, MessageReceipt
 from app.deps import get_db
 from app.jobs.queue import enqueue
@@ -115,14 +116,7 @@ async def list_alerts(
     if chat_id is not None:
         conds.append(Message.chat_id == chat_id)
     if category:
-        conds.append(
-            and_(
-                text(
-                    "EXISTS (SELECT 1 FROM json_each(alerts.categories) "
-                    "WHERE json_each.value = :cat)"
-                ).bindparams(cat=category)
-            )
-        )
+        conds.append(json_array_contains(Alert.categories, category))
     if from_:
         conds.append(Alert.created_at >= from_)
     if to:
@@ -212,7 +206,7 @@ async def _delivery_active(db: AsyncSession, alert_id: int) -> bool:
             .where(
                 Job.type == DELIVERY_JOB,
                 Job.status.in_(["queued", "running"]),
-                func.json_extract(Job.payload, "$.alert_id") == alert_id,
+                Job.payload["alert_id"].as_integer() == alert_id,
             )
         )
     ).scalar_one()

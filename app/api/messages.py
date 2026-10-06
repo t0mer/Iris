@@ -1,12 +1,11 @@
 """/api/messages: search, detail and in-chat context."""
 
-import re
 from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import ColumnElement, and_, func, select, text
+from sqlalchemy import ColumnElement, and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
@@ -18,18 +17,13 @@ from app.db.models import (
     MessageReceipt,
     MessageRevision,
 )
+from app.db.search import MARK_END, MARK_START, find_matches, search_tokens  # noqa: F401
 from app.deps import get_db
 from app.jobs.queue import has_active_job
 from app.security.auth import current_user
 
 router = APIRouter(prefix="/api/messages", tags=["messages"], dependencies=[Depends(current_user)])
 DB = Annotated[AsyncSession, Depends(get_db)]
-
-# FTS snippet markers (control chars, never HTML): the UI splits on them, so content is
-# never rendered as markup.
-MARK_START, MARK_END = "\x02", "\x03"
-_TOKEN = re.compile(r"[\w]+", re.UNICODE)
-_FTS_LIMIT = 5000
 
 
 class KidRef(BaseModel):
@@ -88,12 +82,6 @@ class MessageDetail(MessageOut):
     revisions: list[RevisionOut]  # earlier wordings, original first; empty when redacted
 
 
-def fts_query(q: str) -> str | None:
-    """User text -> safe FTS5 query: every word is a quoted prefix term (AND)."""
-    tokens = _TOKEN.findall(q)
-    return " ".join(f'"{t}"*' for t in tokens) or None
-
-
 async def _kids(db: AsyncSession, ids: list[int]) -> dict[int, list[KidRef]]:
     if not ids:
         return {}
@@ -115,10 +103,10 @@ async def _failures(db: AsyncSession, messages: list[Message]) -> dict[int, str]
     if not ids:
         return {}
     rows = await db.execute(
-        select(func.json_extract(Job.payload, "$.message_id"), Job.last_error)
+        select(Job.payload["message_id"].as_integer(), Job.last_error)
         .where(
             Job.status.in_(["failed", "dead"]),
-            func.json_extract(Job.payload, "$.message_id").in_(ids),
+            Job.payload["message_id"].as_integer().in_(ids),
         )
         .order_by(Job.id)
     )
@@ -171,17 +159,11 @@ async def search_messages(
 ) -> MessagePage:
     conds: list[ColumnElement[bool]] = []
     snippets: dict[int, str] = {}
-    if q and not fts_query(q):
+    tokens = search_tokens(q) if q else []
+    if q and not tokens:
         conds.append(Message.id.in_([]))  # punctuation-only search matches nothing
-    elif q and (match := fts_query(q)):
-        rows = await db.execute(
-            text(
-                "SELECT rowid, snippet(messages_fts, -1, :a, :b, '…', 14) FROM messages_fts "
-                "WHERE messages_fts MATCH :m ORDER BY rank LIMIT :lim"
-            ),
-            {"a": MARK_START, "b": MARK_END, "m": match, "lim": _FTS_LIMIT},
-        )
-        snippets = {int(r[0]): str(r[1]) for r in rows}
+    elif tokens:
+        snippets = await find_matches(db, tokens)
         conds.append(Message.id.in_(list(snippets)))
     if instance_id is not None:
         conds.append(

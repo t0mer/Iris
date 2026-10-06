@@ -176,7 +176,7 @@ async def has_active_job(db: AsyncSession, message_id: int) -> bool:
             .select_from(Job)
             .where(
                 Job.status.in_(["queued", "running"]),
-                func.json_extract(Job.payload, "$.message_id") == message_id,
+                Job.payload["message_id"].as_integer() == message_id,
             )
         )
     ).scalar_one()

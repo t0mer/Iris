@@ -119,7 +119,9 @@ async def list_chats(db: DB) -> list[ChatOut]:
             select(Chat, msg.c.n, msg.c.last, alerts.c.n)
             .outerjoin(msg, msg.c.chat_id == Chat.id)
             .outerjoin(alerts, alerts.c.chat_id == Chat.id)
-            .order_by(msg.c.last.desc().nulls_last(), Chat.id.desc())
+            .order_by(
+                msg.c.last.is_(None), msg.c.last.desc(), Chat.id.desc()
+            )  # NULLs last everywhere
         )
     ).all()
     kids: dict[int, list[ChatKid]] = {}
