@@ -187,7 +187,7 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
                 select(Job.id).where(
                     Job.type == "process_message",
                     Job.status == "running",
-                    Job.id != job.id,
+                    Job.id < job.id,  # only the later job waits, so two can never block each other
                     Job.payload["message_id"].as_integer() == message.id,
                 )
             )

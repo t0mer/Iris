@@ -122,12 +122,14 @@ async def fail(
             .values(status=status, locked_at=None, last_error=error[:500])
         )
         message_id = job.payload.get("message_id")
-        if isinstance(message_id, int):
+        if job.type == "process_message" and isinstance(message_id, int):
             await db.execute(
                 update(Message).where(Message.id == message_id).values(status="failed")
             )
         alert_id = job.payload.get("alert_id")
-        if isinstance(alert_id, int):  # a delivery that ran out of attempts
+        # Only a delivery that ran out of attempts fails its alert; a lost follow-up must not
+        # turn an alert the parent already received into a "failed" one.
+        if job.type == "deliver_alert" and isinstance(alert_id, int):
             alert = await db.get(Alert, alert_id)
             if alert is not None:
                 ALERTS.labels(

@@ -210,6 +210,7 @@ async def receive(
     if change is not None:
         async with _STORE_LOCK:
             result = await apply_change(db, change)
+            await db.commit()  # keeps last_webhook_at even when the change was a no-op
         WEBHOOKS.labels(str(inst_id), result).inc()  # edited | revoked | duplicate | ignored
         return {"result": result}
     if msg is None:

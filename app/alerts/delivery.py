@@ -160,6 +160,11 @@ async def notify_change(job: ClaimedJob, deps: "Deps") -> None:
         alert = await db.get(Alert, alert_id)
         if alert is None:
             raise PermanentError("alert no longer exists")
+        if alert.delivery_status == "pending":
+            raise TransientError("the alert itself is not delivered yet")
+        if alert.delivery_status != "sent":
+            logger.info("alert {} never reached the parent; no follow-up", alert.id)
+            return
         message = await db.get(Message, alert.message_id)
         if message is None:
             raise PermanentError("alert's message no longer exists")
