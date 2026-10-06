@@ -227,6 +227,12 @@ export function TryIt() {
                 </Button>
               </div>
             </div>
+            {stages.length > 1 && (
+              <p className="text-xs text-muted-foreground">
+                Each row shows the first check on top and the second look below it. Orange marks
+                &ldquo;needs a look&rdquo;, red marks &ldquo;harmful&rdquo;.
+              </p>
+            )}
             <ul className="flex flex-col divide-y rounded-lg border bg-surface">
               {rows.map((r) => {
                 const p = draftPair(r, draft)
