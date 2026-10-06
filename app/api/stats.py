@@ -1,9 +1,11 @@
 """/api/stats and /api/chats: dashboard numbers and the known-chats list."""
 
-from datetime import UTC, datetime, timedelta
+from collections import defaultdict
+from datetime import UTC, date, datetime, timedelta
 from typing import Annotated
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +14,7 @@ from app.alerts.service import delivery_configured
 from app.db.models import Alert, Chat, ChatInstance, Instance, Job, Message
 from app.deps import get_db
 from app.security.auth import current_user
+from app.settings_store import get_setting
 
 router = APIRouter(prefix="/api", tags=["stats"], dependencies=[Depends(current_user)])
 DB = Annotated[AsyncSession, Depends(get_db)]
@@ -139,3 +142,56 @@ async def list_chats(db: DB) -> list[ChatOut]:
         )
         for c, n, last, a in rows
     ]
+
+
+class DayActivity(BaseModel):
+    date: date
+    safe: int
+    review: int
+    harmful: int
+    other: int  # pending, skipped or failed: no verdict
+    alerts: int
+
+
+class Timeline(BaseModel):
+    timezone: str
+    days: list[DayActivity]
+
+
+@router.get("/stats/timeline")
+async def timeline(db: DB, days: Annotated[int, Query(ge=1, le=90)] = 14) -> Timeline:
+    """Messages (by verdict) and alerts per day for the last `days` days, zero-filled.
+
+    Days are the parent's days: bucketed in the `alerts.timezone` setting, not in UTC. The
+    database stores naive UTC, so the bucketing happens here rather than in SQL (daylight
+    saving changes make a fixed SQL offset wrong).
+    """
+    tz = ZoneInfo(str(await get_setting(db, "alerts.timezone")))
+    today = datetime.now(tz).date()
+    first = today - timedelta(days=days - 1)
+    start_utc = (
+        datetime.combine(first, datetime.min.time(), tzinfo=tz).astimezone(UTC).replace(tzinfo=None)
+    )
+
+    def local_day(naive_utc: datetime) -> date:
+        return naive_utc.replace(tzinfo=UTC).astimezone(tz).date()
+
+    buckets: dict[date, dict[str, int]] = defaultdict(
+        lambda: {"safe": 0, "review": 0, "harmful": 0, "other": 0, "alerts": 0}
+    )
+    for sent_at, verdict in await db.execute(
+        select(Message.sent_at, Message.verdict).where(Message.sent_at >= start_utc)
+    ):
+        key = verdict if verdict in ("safe", "review", "harmful") else "other"
+        buckets[local_day(sent_at)][key] += 1
+    for (created_at,) in await db.execute(
+        select(Alert.created_at).where(Alert.created_at >= start_utc)
+    ):
+        buckets[local_day(created_at)]["alerts"] += 1
+    return Timeline(
+        timezone=str(tz),
+        days=[
+            DayActivity(date=d, **buckets[d])
+            for d in (first + timedelta(days=i) for i in range(days))
+        ],
+    )
