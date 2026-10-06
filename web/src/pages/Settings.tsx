@@ -23,6 +23,7 @@ import { Switch } from '../components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { api, ApiError } from '../lib/api'
 import type { Instance, ThresholdRow } from '../lib/types'
+import { overridesFrom } from '../lib/thresholds'
 
 type Secret = { set: boolean }
 interface Values {
@@ -369,28 +370,7 @@ export function Settings() {
     }
   }
 
-  /** The thresholds that differ from the defaults, or 'invalid' if any typed value cannot be used. */
-  function thresholdOverrides(): Record<string, { low: number; high: number }> | null | 'invalid' {
-    if (!thresholdRows || Object.keys(thresholdEdits).length === 0) return null
-    const out: Record<string, { low: number; high: number }> = {}
-    for (const r of thresholdRows) {
-      const e = thresholdEdits[r.category]
-      const low = e ? Number(e.low) : r.low
-      const high = e ? Number(e.high) : r.high
-      const blank = e && (e.low.trim() === '' || e.high.trim() === '')
-      if (
-        blank ||
-        !Number.isFinite(low) ||
-        !Number.isFinite(high) ||
-        low < 0 ||
-        high > 1 ||
-        low >= high
-      )
-        return 'invalid'
-      if (low !== r.default_low || high !== r.default_high) out[r.category] = { low, high }
-    }
-    return out
-  }
+  const thresholdOverrides = () => overridesFrom(thresholdRows, thresholdEdits)
 
   function saveAll() {
     const changes: Record<string, Change> = {}

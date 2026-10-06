@@ -47,6 +47,8 @@ container (amd64 and arm64), and uses free or low-cost models wherever possible.
   and a "Deleted for everyone" label. An edited message gets an **Edited** marker, and the original wording
   and every earlier version stay available as an edit history. Iris tells you on WhatsApp when the message of
   an alert you already received is edited or deleted.
+- **Try it page.** Type a message, see how Iris scores and classifies it, and adjust the thresholds with an
+  instant preview before saving them.
 - **Searchable archive** (SQLite FTS5, Hebrew and English) with filters, a chat-style context view and
   match highlighting.
 - **A modern, responsive portal.** A sidebar on desktop, an icon rail on tablets, and a bottom tab bar on
@@ -301,6 +303,27 @@ How Iris treats a change:
 | Phone | Dark mode |
 |---|---|
 | ![Edit history on a phone](assets/screenshots/phone-edit-history.png) | ![A deleted message in dark mode](assets/screenshots/message-revoked-dark.png) |
+### Try it
+
+![Try it](assets/screenshots/try-it.png)
+
+Use **Try it** to tune the [thresholds](#settings-in-the-portal) without waiting for a real message. Type
+some text, optionally add earlier lines from the chat (one per line, oldest first) and press **Check**. Iris
+asks OpenAI Moderation once and shows the score for every category, the band each one lands in, and the final
+verdict: fine, needs a look (review queue) or harmful (alert).
+
+Then change the **Needs a look** and **Harmful** values on any row: the bands and the verdict update at once,
+without another request. The orange and red ticks on each bar mark the current thresholds. **Save these
+thresholds** stores them (only the rows that differ from the defaults); **Reset to saved** drops the preview.
+With earlier lines filled in, Iris also scores the second look, exactly like the real pipeline does for an
+unclear message.
+
+The text you check is sent to OpenAI for moderation and is **not stored or logged** by Iris. It never appears
+in Messages, Alerts or the review queue. Checks are limited to 30 per 5 minutes.
+
+| Phone | Dark mode |
+|---|---|
+| ![Try it on a phone](assets/screenshots/phone-try-it.png) | ![Try it in dark mode](assets/screenshots/try-it-dark.png) |
 
 ### Chats, instances, jobs
 
@@ -357,6 +380,7 @@ except `/api/auth/login`, `/api/health` and `/api/version`. Interactive OpenAPI 
 | GET, PUT | `/api/settings` | Read and write settings (thresholds are the key `classification.thresholds`) |
 | GET | `/api/settings/thresholds` | Effective per-category thresholds next to their defaults (read-only) |
 | POST | `/api/settings/test/{openai\|cloudflare\|alert}` | Test a provider with the values entered |
+| POST | `/api/classify/test` | Score typed `text` (max 4000 chars) with optional earlier `context` lines (max 20); nothing is stored; 30 per 5 minutes |
 | GET | `/api/jobs` | Failed and dead jobs with their errors |
 | POST | `/api/jobs/{id}/retry` | Retry a failed or dead job |
 | POST | `/webhooks/{token}` | OpenWA delivers here (authenticated by the token, and by an HMAC signature once Iris registered the webhook) |
