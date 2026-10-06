@@ -3,7 +3,6 @@ import stat
 from pathlib import Path
 
 import pytest
-from cryptography.exceptions import InvalidTag
 from sqlalchemy.engine import make_url
 
 from app.config import get_settings
@@ -108,7 +107,7 @@ def test_a_file_made_with_another_secret_key_is_not_readable(
     dburl.save_file(PG)
     monkeypatch.setenv("IRIS_SECRET_KEY", base64.b64encode(b"z" * 32).decode())
     get_settings.cache_clear()
-    with pytest.raises(InvalidTag):
+    with pytest.raises(dburl.DbConfigError, match="IRIS_SECRET_KEY"):
         dburl.load_file()
 
 

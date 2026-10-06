@@ -85,8 +85,8 @@ async def test_a_blank_password_keeps_the_saved_one(
     await app_client.put("/api/database", json=PG_BODY)
     await app_client.post("/api/database/test", json={**PG_BODY, "password": ""})
     assert probe_ok[-1].password == "s3cret-pw"
-    await app_client.put("/api/database", json={**PG_BODY, "password": None, "name": "other"})
-    assert dburl.load_file() == DbConfig(**{**PG_BODY, "name": "other"})
+    await app_client.put("/api/database", json={**PG_BODY, "password": None, "tls": True})
+    assert dburl.load_file() == DbConfig(**{**PG_BODY, "tls": True})  # same server: kept
     # a different account does not inherit the stored password
     await app_client.post("/api/database/test", json={**PG_BODY, "password": "", "user": "bob"})
     assert probe_ok[-1].password == ""
@@ -254,3 +254,185 @@ async def test_the_copy_never_exposes_the_password_it_used(app_client: Any, tmp_
     assert r.status_code == 202
     failed = await _wait_copy(app_client)
     assert failed["state"] == "failed" and "pw-123" not in json.dumps(failed)
+
+
+# --- review findings --------------------------------------------------------------------------
+
+
+async def test_a_stored_password_is_not_sent_to_a_different_server(
+    app_client: Any, probe_ok: list[DbConfig]
+) -> None:
+    await app_client.put("/api/database", json=PG_BODY)
+    for change in ({"host": "other.example"}, {"port": 6543}, {"name": "elsewhere"}):
+        await app_client.post("/api/database/test", json={**PG_BODY, "password": "", **change})
+        assert probe_ok[-1].password == "", change
+    await app_client.post("/api/database/test", json={**PG_BODY, "password": ""})
+    assert probe_ok[-1].password == "s3cret-pw"  # the very same server keeps it
+
+
+async def test_an_unreadable_saved_choice_is_reported_not_swallowed(
+    app_client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dburl.config_path().write_text("{ not json", encoding="utf-8")
+    with pytest.raises(dburl.DbConfigError) as err:
+        dburl.resolve()
+    assert "cannot be read" in str(err.value) and "IRIS_SECRET_KEY" in str(err.value)
+    s = (await app_client.get("/api/database")).json()
+    assert "cannot be read" in s["config_error"] and s["restart_required"] is False
+
+
+async def test_a_file_saved_with_another_key_names_the_cause_without_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import base64
+
+    dburl.save_file(DbConfig(kind="postgresql", host="h", name="n", user="u", password="pw-9"))
+    monkeypatch.setenv("IRIS_SECRET_KEY", base64.b64encode(b"z" * 32).decode())
+    get_settings.cache_clear()
+    with pytest.raises(dburl.DbConfigError) as err:
+        dburl.resolve()
+    assert "pw-9" not in str(err.value)
+
+
+async def test_saving_a_new_choice_forgets_the_old_copy_result(
+    app_client: Any, tmp_path: Path, probe_ok: list[DbConfig]
+) -> None:
+    await _seed(app_client)
+    dburl.save_file(_target(tmp_path))
+    await app_client.post("/api/database/copy")
+    assert (await _wait_copy(app_client))["state"] == "done"
+    await app_client.put("/api/database", json=PG_BODY)
+    assert (await app_client.get("/api/database")).json()["copy_job"]["state"] == "idle"
+
+
+async def test_the_probe_calls_a_migrated_but_empty_database_empty(tmp_path: Path) -> None:
+    from app.db.engine import make_engine, make_session_factory
+    from app.db.migrate import upgrade_head
+    from app.db.models import Chat
+
+    path = tmp_path / "probe.db"
+    await asyncio.to_thread(upgrade_head, f"sqlite+aiosqlite:///{path}")
+    cfg = DbConfig(kind="sqlite", name=str(path))
+    assert (await dbapi._probe(cfg)).empty is True  # tables exist, no rows
+    engine = make_engine(config=cfg)
+    async with make_session_factory(engine)() as s:
+        s.add(Chat(wa_chat_id="c", name="x"))
+        await s.commit()
+    await engine.dispose()
+    r = await dbapi._probe(cfg)
+    assert r.empty is False and "already holds Iris data" in r.detail
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ('database "iris" does not exist', "That database does not exist"),
+        ('role "bob" does not exist', "Could not connect"),
+        ("password authentication failed for user", "user name or password was refused"),
+        ("Access denied for user 'u'@'h' (1045)", "user name or password was refused"),
+        ("Unknown database 'iris' (1049)", "That database does not exist"),
+    ],
+)
+def test_reasons_are_specific_and_never_the_driver_text(message: str, expected: str) -> None:
+    exc = RuntimeError("driver text")
+    exc.orig = RuntimeError(message)  # type: ignore[attr-defined]  # how SQLAlchemy wraps drivers
+    why = dbapi._why(exc)
+    assert expected in why and "bob" not in why and "iris" not in why.replace("Iris", "")
+
+
+# --- the copy under stress ------------------------------------------------------------------
+
+
+async def test_a_failed_copy_leaves_the_target_empty_so_it_can_be_retried(
+    app_client: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.db import copy as dbcopy
+
+    await _seed(app_client)
+    dburl.save_file(_target(tmp_path))
+    real = dbcopy._copy_table
+
+    async def flaky(src: Any, target: Any, table: Any) -> int:
+        if table.name == "message_receipts":
+            raise OSError("connection reset by peer")
+        return await real(src, target, table)
+
+    monkeypatch.setattr(dbcopy, "_copy_table", flaky)
+    await app_client.post("/api/database/copy")
+    failed = await _wait_copy(app_client)
+    assert failed["state"] == "failed" and "OSError" in failed["error"]
+    assert "connection reset" not in failed["error"]
+
+    monkeypatch.setattr(dbcopy, "_copy_table", real)  # the server recovered
+    await app_client.post("/api/database/copy")
+    assert (await _wait_copy(app_client))["state"] == "done"
+
+
+async def test_writes_during_the_copy_do_not_break_it(
+    app_client: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.db import copy as dbcopy
+    from app.db.models import MessageReceipt
+
+    await _seed(app_client)
+    dburl.save_file(_target(tmp_path))
+    real = dbcopy._copy_table
+
+    async def writes_in_between(src: Any, target: Any, table: Any) -> int:
+        n = await real(src, target, table)
+        if table.name == "messages":  # a webhook lands after the messages were copied
+            async with app_client.app.state.session_factory() as s:
+                chat_id = (await s.execute(select(Message.chat_id))).scalars().first()
+                s.add(
+                    Message(
+                        wa_message_id="late",
+                        chat_id=chat_id,
+                        type="text",
+                        text="late",
+                        sent_at=__import__("datetime").datetime.now(__import__("datetime").UTC),
+                    )
+                )
+                await s.flush()
+                late = (
+                    await s.execute(select(Message).where(Message.wa_message_id == "late"))
+                ).scalar_one()
+                inst = (await s.execute(select(Instance.id))).scalars().first()
+                s.add(MessageReceipt(message_id=late.id, instance_id=inst))
+                await s.commit()
+        return n
+
+    monkeypatch.setattr(dbcopy, "_copy_table", writes_in_between)
+    await app_client.post("/api/database/copy")
+    done = await _wait_copy(app_client)
+    assert done["state"] == "done", done
+    assert done["copied"]["messages"] == 2 and done["copied"]["message_receipts"] == 2
+
+
+async def test_the_copy_migrates_the_target_with_its_own_settings(
+    app_client: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.db import copy as dbcopy
+
+    seen: list[Any] = []
+    real = dbcopy.upgrade_head
+    monkeypatch.setattr(dbcopy, "upgrade_head", lambda *a: (seen.append(a), real(*a))[1])
+    target = DbConfig(kind="sqlite", name=str(tmp_path / "tls.db"), tls=True)
+    dburl.save_file(target)
+    await app_client.post("/api/database/copy")
+    assert (await _wait_copy(app_client))["state"] == "done"
+    assert seen and seen[0][0] is None and seen[0][1] == target  # TLS and timeouts travel along
+
+
+async def test_nullable_json_columns_store_sql_null(app_client: Any) -> None:
+    from sqlalchemy import text
+
+    await _seed(app_client)
+    async with app_client.app.state.session_factory() as s:
+        m = (await s.execute(select(Message))).scalars().first()
+        assert m is not None
+        m.media = None
+        await s.commit()
+        n = (
+            await s.execute(text("SELECT count(*) FROM messages WHERE media IS NULL"))
+        ).scalar_one()
+        assert n >= 1
