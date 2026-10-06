@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pytest
 from sqlalchemy import func, select, text, update
 
 from app.alerts.service import create_alert
@@ -29,6 +30,7 @@ async def count(c: Any, model: Any) -> int:
         return int((await s.execute(select(func.count()).select_from(model))).scalar_one())
 
 
+@pytest.mark.sqlite_only
 async def test_old_messages_deleted_with_their_rows_and_search_entries(app_client: Any) -> None:
     _, token = await make_instance(app_client)
     ids = await seed(app_client, token, ["R1", "R2"], [100, 5])

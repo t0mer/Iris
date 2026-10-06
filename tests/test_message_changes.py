@@ -2,6 +2,7 @@ import json
 import re
 from typing import Any
 
+import pytest
 from sqlalchemy import func, select, text
 
 from app.db.models import Alert, Job, Message, MessageRevision
@@ -63,6 +64,7 @@ async def test_edit_keeps_the_original_and_updates_the_text(app_client: Any) -> 
     assert len(await _jobs(app_client, "process_message")) == 2  # original + the edit
 
 
+@pytest.mark.sqlite_only
 async def test_search_finds_the_new_text_not_the_old(app_client: Any) -> None:
     _, token = await make_instance(app_client)
     await post(app_client, token, fx(SENT))

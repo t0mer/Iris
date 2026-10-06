@@ -15,7 +15,8 @@ PG = DbConfig(kind="postgresql", host="db.local", name="iris", user="iris", pass
 MY = DbConfig(kind="mysql", host="10.0.0.5", port=3307, name="iris", user="iris", password="x")
 
 
-def test_default_is_the_sqlite_file_in_the_data_dir() -> None:
+def test_default_is_the_sqlite_file_in_the_data_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("IRIS_DATABASE_URL", raising=False)
     cfg, source = resolve()
     assert (cfg.kind, source) == ("sqlite", "default")
     assert str(cfg.to_url()).endswith("iris.db") and "sqlite+aiosqlite" in str(cfg.to_url())
@@ -78,6 +79,7 @@ def test_the_description_never_contains_the_password() -> None:
 def test_env_wins_over_the_file_and_the_file_over_the_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.delenv("IRIS_DATABASE_URL", raising=False)
     dburl.save_file(PG)
     cfg, source = resolve()
     assert (source, cfg.host, cfg.password) == ("file", "db.local", "p@ss:w/rd")
