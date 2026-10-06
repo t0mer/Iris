@@ -331,3 +331,59 @@ def test_recipient_chat_id_normalisation(recipient: str) -> None:
 
 async def test_set_setting_helper_still_available() -> None:
     assert set_setting is not None
+
+
+def _revoke(fixture: str) -> bytes:
+    raw = json.loads(fx("message_revoked"))
+    raw["data"]["revokedId"] = json.loads(fx(fixture))["data"]["id"]
+    return json.dumps(raw).encode()
+
+
+@respx.mock
+async def test_deleted_alerted_message_sends_a_follow_up_without_content(app_client: Any) -> None:
+    from app.alerts import ALERT_PREFIX
+    from app.alerts.format import is_own_alert
+
+    deps, token, _ = await setup(app_client)
+    respx.post(MOD_URL).mock(return_value=mod_response(violence=0.95))
+    send = respx.post(SEND_URL).mock(return_value=httpx.Response(201, json={}))
+    await post(app_client, token, fx("text_received_mixed"))
+    await run_all(deps)
+    assert send.call_count == 1
+    await post(app_client, token, _revoke("text_received_mixed"))
+    assert await run_all(deps) == ["done"]
+    assert send.call_count == 2
+    text = json.loads(send.calls.last.request.content)["text"]
+    assert text.startswith(ALERT_PREFIX) and "deleted for everyone" in text
+    assert "mixed" not in text and "Kid: Noa" in text
+    assert is_own_alert(text, get_settings().key_bytes)  # the loop guard still recognises it
+    await deps.providers.aclose()
+
+
+@respx.mock
+async def test_edited_alerted_message_sends_a_follow_up(app_client: Any) -> None:
+    deps, token, _ = await setup(app_client)
+    respx.post(MOD_URL).mock(return_value=mod_response(violence=0.95))
+    send = respx.post(SEND_URL).mock(return_value=httpx.Response(201, json={}))
+    await post(app_client, token, fx("text_sent_he"))
+    await run_all(deps)
+    await post(app_client, token, fx("message_edited"))
+    await run_all(deps)  # the follow-up and the re-check of the edited text
+    texts = [json.loads(c.request.content)["text"] for c in send.calls]
+    assert any("was edited by the sender" in t for t in texts)
+    await deps.providers.aclose()
+
+
+@respx.mock
+async def test_a_rejected_follow_up_fails_visibly(
+    app_client: Any,
+) -> None:
+    deps, token, _ = await setup(app_client)
+    respx.post(MOD_URL).mock(return_value=mod_response(violence=0.95))
+    send = respx.post(SEND_URL).mock(return_value=httpx.Response(201, json={}))
+    await post(app_client, token, fx("text_received_mixed"))
+    await run_all(deps)
+    send.mock(return_value=httpx.Response(400, json={"message": "bad"}))
+    await post(app_client, token, _revoke("text_received_mixed"))
+    assert await run_all(deps) == ["failed"]  # visible on the Jobs page
+    await deps.providers.aclose()
