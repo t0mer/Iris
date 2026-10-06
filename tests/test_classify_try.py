@@ -103,11 +103,37 @@ async def test_provider_error_is_502_without_the_key(app_client: Any) -> None:
 async def test_input_limits(app_client: Any) -> None:
     for body in (
         {"text": ""},
+        {"text": "   "},
         {"text": "x" * 4001},
         {"text": "x", "context": ["y"] * 21},
         {"text": "x", "context": ["y" * 1001]},
     ):
         assert (await app_client.post("/api/classify/test", json=body)).status_code == 422
+
+
+async def test_provider_outage_is_502(app_client: Any) -> None:
+    await _key(app_client)
+    with respx.mock:
+        respx.post(URL).mock(return_value=httpx.Response(503))
+        r = await app_client.post("/api/classify/test", json={"text": "hi"})
+    assert r.status_code == 502
+
+
+async def test_missing_key_does_not_use_up_checks(app_client: Any) -> None:
+    for _ in range(classify.MAX_CHECKS + 1):
+        assert (await app_client.post("/api/classify/test", json={"text": "a"})).status_code == 400
+    assert not classify._recent
+
+
+async def test_context_check_costs_two_slots(app_client: Any) -> None:
+    await _key(app_client)
+    with respx.mock:
+        respx.post(URL).mock(return_value=_resp())
+        for _ in range(classify.MAX_CHECKS // 2):
+            body = {"text": "a", "context": ["b"]}
+            assert (await app_client.post("/api/classify/test", json=body)).status_code == 200
+        r = await app_client.post("/api/classify/test", json={"text": "a", "context": ["b"]})
+    assert r.status_code == 429
 
 
 async def test_rate_limited(app_client: Any) -> None:

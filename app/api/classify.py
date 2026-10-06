@@ -5,7 +5,7 @@ from collections import deque
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.settings import ThresholdRow, thresholds
@@ -27,13 +27,14 @@ WINDOW_SECONDS = 300
 _recent: deque[float] = deque()
 
 
-def _rate_limited() -> bool:
+def _rate_limited(calls: int) -> bool:
+    """Each provider call takes a slot, so a check with context costs two."""
     now = time.monotonic()
     while _recent and now - _recent[0] > WINDOW_SECONDS:
         _recent.popleft()
-    if len(_recent) >= MAX_CHECKS:
+    if len(_recent) + calls > MAX_CHECKS:
         return True
-    _recent.append(now)
+    _recent.extend([now] * calls)
     return False
 
 
@@ -42,6 +43,14 @@ class ClassifyRequest(BaseModel):
     context: list[Annotated[str, Field(max_length=1000)]] = Field(
         default_factory=list, max_length=20
     )
+
+    @model_validator(mode="after")
+    def _clean(self) -> "ClassifyRequest":
+        self.text = self.text.strip()
+        self.context = [t.strip() for t in self.context if t.strip()]
+        if not self.text:
+            raise ValueError("text must not be blank")
+        return self
 
 
 class StageOut(BaseModel):
@@ -68,8 +77,6 @@ async def classify_test(
     key = await get_secret(db, "openai.api_key", cfg.key_bytes)
     if not key:
         raise HTTPException(400, "No OpenAI API key set")
-    if _rate_limited():
-        raise HTTPException(429, "Too many checks. Wait a few minutes and try again.")
     model = str(await get_setting(db, "classification.model"))
     saved = effective_thresholds(await get_setting(db, "classification.thresholds"))
     inputs = [("moderation", body.text)]
@@ -77,6 +84,8 @@ async def classify_test(
         previous = [Message(sender_name="Chat", text=t, type="text") for t in body.context]
         target = Message(sender_name="Chat", text=body.text, type="text")
         inputs.append(("context", build_context_input(previous, target)))
+    if _rate_limited(len(inputs)):
+        raise HTTPException(429, "Too many checks. Wait a few minutes and try again.")
     client = ModerationClient(key)
     stages: list[StageOut] = []
     try:
