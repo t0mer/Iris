@@ -11,6 +11,21 @@ services:
       # OpenWA must be able to reach this URL, it is where kids' webhooks point.
       IRIS_PUBLIC_BASE_URL: http://10.0.0.20:8080
       IRIS_LOG_LEVEL: INFO
+      # Optional: keep the data in PostgreSQL or MySQL instead of the SQLite file. Create an empty
+      # database first. Without this, choose the database under Settings > Database instead.
+      # IRIS_DATABASE_URL: postgresql://iris:change-me@postgres:5432/iris
+      # IRIS_DATABASE_URL: mysql://iris:change-me@mysql:3306/iris
     restart: unless-stopped
+  # Example PostgreSQL server for the option above (add `depends_on: [postgres]` to iris):
+  # postgres:
+  #   image: postgres:16
+  #   environment:
+  #     POSTGRES_USER: iris
+  #     POSTGRES_PASSWORD: change-me
+  #     POSTGRES_DB: iris
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
+  #   restart: unless-stopped
 volumes:
   iris-data:
+  # postgres-data:

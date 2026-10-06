@@ -22,6 +22,66 @@ jobs:
       - run: uv run mypy
       - run: uv run pytest -q
 
+  postgres:
+    # The whole suite against PostgreSQL, then a copy from SQLite into a second PostgreSQL database.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: pw
+          POSTGRES_DB: iris
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 5s --health-retries 12
+    env:
+      IRIS_DATABASE_URL: postgresql://postgres:pw@127.0.0.1:5432/iris
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: Install ffmpeg (media tests)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: uv sync --frozen
+      - run: uv run pytest -q
+      - name: Copy from SQLite into PostgreSQL
+        env:
+          IRIS_DATABASE_URL: ""
+          IRIS_TEST_PG_URL: postgresql://postgres:pw@127.0.0.1:5432/iris_copy
+        run: |
+          PGPASSWORD=pw psql -h 127.0.0.1 -U postgres -c 'CREATE DATABASE iris_copy'
+          uv run pytest -m integration tests/test_db_copy_real.py -q
+
+  mysql:
+    # The whole suite against MySQL, then a copy from SQLite into a second MySQL database.
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: pw
+          MYSQL_DATABASE: iris
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -ppw" --health-interval 5s
+          --health-timeout 5s --health-retries 20
+    env:
+      IRIS_DATABASE_URL: mysql://root:pw@127.0.0.1:3306/iris
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: Install ffmpeg (media tests)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: uv sync --frozen
+      - run: uv run pytest -q
+      - name: Copy from SQLite into MySQL
+        env:
+          IRIS_DATABASE_URL: ""
+          IRIS_TEST_MYSQL_URL: mysql://root:pw@127.0.0.1:3306/iris_copy
+        run: |
+          mysql -h 127.0.0.1 -uroot -ppw -e 'CREATE DATABASE iris_copy CHARACTER SET utf8mb4'
+          uv run pytest -m integration tests/test_db_copy_real.py -q
+
   web:
     runs-on: ubuntu-latest
     defaults:
