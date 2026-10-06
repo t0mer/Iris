@@ -132,6 +132,11 @@ function DatabaseForm({ data }: { data: DatabaseStatus }) {
               </span>
             </p>
           )}
+          {data.config_error && (
+            <p role="alert" className="rounded-md bg-danger-soft p-3 text-danger">
+              {data.config_error}
+            </p>
+          )}
           {locked && (
             <p className="text-muted-foreground">
               The database is set by the <code>IRIS_DATABASE_URL</code> environment variable, so it
@@ -215,7 +220,14 @@ function DatabaseForm({ data }: { data: DatabaseStatus }) {
                     autoComplete="off"
                   />
                 </Field>
-                <Field label="Password">
+                <Field
+                  label="Password"
+                  hint={
+                    data.saved.password_set
+                      ? 'Leave blank to keep the saved one. Changing the host, port or database means typing it again.'
+                      : undefined
+                  }
+                >
                   <Input
                     dir="ltr"
                     type="password"
@@ -256,10 +268,10 @@ function DatabaseForm({ data }: { data: DatabaseStatus }) {
 
           {probe && (
             <div
-              role="status"
+              role={probe.ok ? 'status' : 'alert'}
               className={`rounded-md p-3 text-sm ${probe.ok ? 'bg-success-soft' : 'bg-danger-soft text-danger'}`}
             >
-              <p className="font-medium">{probe.ok ? probe.detail : probe.detail}</p>
+              <p className="font-medium">{probe.detail}</p>
               {probe.version && <p className="text-muted-foreground">Server {probe.version}</p>}
               {probe.warning && <p className="mt-1 text-warning">{probe.warning}</p>}
             </div>

@@ -53,7 +53,7 @@ test('choosing a server database shows its fields with the usual port', async ()
 
 test('a saved password is never shown, only that one is stored', async () => {
   renderWithApp(<DatabaseTab />, { '/api/database': status({ saved: pg }) })
-  const pw = await screen.findByLabelText('Password')
+  const pw = await screen.findByLabelText(/^Password/)
   expect(pw).toHaveValue('')
   expect(pw).toHaveAttribute('placeholder', 'Saved, leave blank to keep')
   expect(screen.getByLabelText('Host')).toHaveValue('db.local')
@@ -64,7 +64,7 @@ test('test connection sends the typed values and shows the answer and any warnin
     '/api/database': status({ saved: pg }),
     '/api/database/test': { ...probeOk, warning: 'The database uses latin1.' },
   })
-  await userEvent.type(await screen.findByLabelText('Password'), 'pw1')
+  await userEvent.type(await screen.findByLabelText(/^Password/), 'pw1')
   await userEvent.click(screen.getByRole('button', { name: /Test connection/ }))
   expect(await screen.findByText('Connected.')).toBeInTheDocument()
   expect(screen.getByText(/The database uses latin1/)).toBeInTheDocument()
@@ -180,4 +180,25 @@ test('going back to SQLite is confirmed and removes the saved choice', async () 
   const dialog = await screen.findByRole('alertdialog')
   await userEvent.click(within(dialog).getByRole('button', { name: 'Use SQLite' }))
   expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/database')).toBe(true)
+})
+
+test('an unreadable saved choice is shown as an error', async () => {
+  renderWithApp(<DatabaseTab />, {
+    '/api/database': status({ config_error: 'database.json cannot be read (InvalidTag).' }),
+  })
+  expect(await screen.findByRole('alert')).toHaveTextContent('cannot be read')
+})
+
+test('a refused connection is announced as an alert', async () => {
+  renderWithApp(<DatabaseTab />, {
+    '/api/database': status({ saved: pg }),
+    '/api/database/test': { ok: false, detail: 'Could not reach the server.' },
+  })
+  await userEvent.click(await screen.findByRole('button', { name: /Test connection/ }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Could not reach')
+})
+
+test('the password field explains when the saved password is kept', async () => {
+  renderWithApp(<DatabaseTab />, { '/api/database': status({ saved: pg }) })
+  expect(await screen.findByText(/Changing the host, port or database/)).toBeInTheDocument()
 })

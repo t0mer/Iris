@@ -187,6 +187,7 @@ export interface CopyState {
 }
 
 export interface DatabaseStatus {
+  config_error?: string | null
   running: DbConfigInfo
   running_source: 'env' | 'file' | 'default'
   saved: DbConfigInfo
