@@ -49,7 +49,9 @@ container (amd64 and arm64), and uses free or low-cost models wherever possible.
   an alert you already received is edited or deleted.
 - **Try it page.** Type a message, see how Iris scores and classifies it, and adjust the thresholds with an
   instant preview before saving them.
-- **Searchable archive** (SQLite FTS5, Hebrew and English) with filters, a chat-style context view and
+- **SQLite, PostgreSQL or MySQL.** SQLite is the default and needs nothing; pick a database server under
+  **Settings > Database** and copy your data across with one button.
+- **Searchable archive** (Hebrew and English; SQLite full-text, or substring search on PostgreSQL and MySQL) with filters, a chat-style context view and
   match highlighting.
 - **A modern, responsive portal.** A sidebar on desktop, an icon rail on tablets, and a bottom tab bar on
   phones, so an alert link opens into something you can use one-handed. Light and dark themes follow your
@@ -74,14 +76,14 @@ flowchart LR
         T --> C
         C --> A["Alert service<br/>cooldown, redaction"]
         A -- "send-text" --> OW
-        UI["Portal + REST API"] --- DB[("SQLite + FTS5")]
+        UI["Portal + REST API"] --- DB[("SQLite, PostgreSQL<br/>or MySQL")]
     end
     A -. "WhatsApp message" .-> P(("Parent"))
 ```
 
 The webhook handler never calls an external API: it validates, stores, queues and answers `200`. All slow
 work (downloading media, transcribing, moderating, alerting) happens in worker tasks inside the same process.
-Iris runs as **one process on purpose**: the queue and SQLite assume it.
+Iris runs as **one process on purpose**: the queue and its locks assume it.
 
 ## Requirements
 
@@ -176,13 +178,46 @@ have. Use the switch to pause watching a phone without removing it.
 | `IRIS_PUBLIC_BASE_URL` | yes | | Externally reachable base URL, used to build webhook URLs and alert links. |
 | `IRIS_ADMIN_USERNAME` | first run | | Initial admin user. |
 | `IRIS_ADMIN_PASSWORD` | first run | | Initial admin password (stored hashed with argon2; ignored afterwards). |
-| `IRIS_DATA_DIR` | no | `/data` | SQLite database and temporary media. |
+| `IRIS_DATA_DIR` | no | `/data` | SQLite database (unless another database is chosen), the saved database choice and temporary media. |
+| `IRIS_DATABASE_URL` | no | | `postgresql://user:password@host:5432/db` or `mysql://user:password@host:3306/db` (or `sqlite:///path`). Overrides the choice made in Settings, which then becomes read only. Add `?ssl=true` for TLS. |
 | `IRIS_PORT` | no | `8080` | Listening port. |
 | `IRIS_WORKERS` | no | `3` | Concurrent job workers. |
 | `IRIS_LOG_LEVEL` | no | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
 | `IRIS_LOG_JSON` | no | `false` | JSON log lines. |
 | `IRIS_METRICS_TOKEN` | no | unset | If set, `/metrics` requires `Authorization: Bearer <token>`. |
 | `IRIS_FORWARDED_ALLOW_IPS` | no | `127.0.0.1` | Your reverse proxy's IP, so the login rate limit sees real client addresses. |
+
+### Choosing a database
+
+By default Iris keeps everything in one **SQLite** file in its data folder. To use a database server instead,
+open **Settings > Database**:
+
+![Database settings](assets/screenshots/database-postgres.png)
+
+1. Create an **empty** database and a user for Iris on your PostgreSQL or MySQL server. On MySQL create the
+   database with the `utf8mb4` character set.
+2. Pick the type, enter the host, port, database name, user and password (turn on **Use TLS** if the server
+   supports it) and press **Test connection**. Iris tells you whether it can reach the server, whether the login
+   works and whether the database is empty.
+3. Press **Save**. The choice is stored in `database.json` in the data folder (the password is encrypted with
+   `IRIS_SECRET_KEY`) and Iris uses it from the **next start**. Restart Iris, for Docker `docker restart iris`.
+4. To keep your history, press **Copy my data to PostgreSQL** (or MySQL) *before* restarting. It copies phones,
+   settings, messages, alerts and the edit history into the empty database, checks the row counts, and leaves the
+   current database untouched, so the old SQLite file is a backup. Messages that arrive while it copies are not
+   included, so copy when it is quiet and restart right after.
+
+**Use SQLite again** forgets the saved choice. If `IRIS_DATABASE_URL` is set the page only shows what is in use,
+because the variable wins.
+
+Notes:
+
+- Only one Iris process may use a database (the job queue and locks live in that process), whichever database it is.
+- Message search on PostgreSQL and MySQL matches any part of a word and ignores case, and works for Hebrew and
+  English; on SQLite it uses the full-text index, which matches the start of words. The results page looks the same.
+- Iris creates its tables itself (migrations run at start). It never creates databases or users.
+- A different `IRIS_SECRET_KEY` cannot read the saved database password or the encrypted settings.
+
+![Database settings in dark mode](assets/screenshots/database-postgres-dark.png)
 
 ### Settings (in the portal)
 
@@ -381,6 +416,9 @@ except `/api/auth/login`, `/api/health` and `/api/version`. Interactive OpenAPI 
 | GET | `/api/settings/thresholds` | Effective per-category thresholds next to their defaults (read-only) |
 | POST | `/api/settings/test/{openai\|cloudflare\|alert}` | Test a provider with the values entered |
 | POST | `/api/classify/test` | Score typed `text` (max 4000 chars) with optional earlier `context` lines (max 20); nothing is stored; 30 per 5 minutes |
+| GET, PUT, DELETE | `/api/database` | Which database runs and which is saved for the next start (never the password); save a choice (409 when `IRIS_DATABASE_URL` is set); go back to SQLite |
+| POST | `/api/database/test` | Try a connection with the values entered (10 per 5 minutes) |
+| GET, POST | `/api/database/copy` | Progress of, and start, the copy of your data into the saved database |
 | GET | `/api/jobs` | Failed and dead jobs with their errors |
 | POST | `/api/jobs/{id}/retry` | Retry a failed or dead job |
 | POST | `/webhooks/{token}` | OpenWA delivers here (authenticated by the token, and by an HMAC signature once Iris registered the webhook) |
@@ -425,6 +463,14 @@ outside, so set `IRIS_METRICS_TOKEN` or restrict `/metrics` in your reverse prox
   `https://`.
 
 ## Troubleshooting
+
+**Test connection says "Could not reach the server".** Check the host and port from where Iris runs (in Docker,
+`localhost` is the container itself: use the server's address or its compose service name) and any firewall.
+"The user name or password was refused" and "That database does not exist" mean the server answered but the
+login or the database name is wrong. Iris never shows the password in these messages.
+
+**I changed the database but Iris still shows the old one.** The choice applies at the next start: restart Iris.
+If **Settings > Database** is read only, `IRIS_DATABASE_URL` is set and wins.
 
 **Messages show `failed` with "OpenWA has no stored media…".** OpenWA could not download the media of a
 message the session *received*. This is a known bug in OpenWA before 0.24.0
