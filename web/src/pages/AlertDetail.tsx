@@ -11,6 +11,8 @@ import {
 } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
+import { MessageFlags } from '../components/MessageFlags'
+import { revokedClass } from '../lib/revoked'
 import { KidStack } from '../components/KidAvatar'
 import { PageHeader } from '../components/PageHeader'
 import { CategoryChips } from '../components/Scores'
@@ -98,6 +100,10 @@ export function AlertDetail() {
         <Badge tone={a.status === 'new' ? 'danger' : 'success'}>
           {STATUS[a.status as keyof typeof STATUS] ?? a.status}
         </Badge>
+        <MessageFlags
+          m={{ id: a.message_id, edited_at: a.edited_at, revoked_at: a.revoked_at }}
+          history
+        />
       </div>
 
       {a.redacted ? (
@@ -110,7 +116,10 @@ export function AlertDetail() {
         </div>
       ) : (
         <blockquote
-          className="rounded-lg border-s-4 border-danger bg-surface p-5 text-lg leading-relaxed"
+          className={cn(
+            'rounded-lg border-s-4 border-danger bg-surface p-5 text-lg leading-relaxed',
+            revokedClass(a),
+          )}
           dir="auto"
         >
           <span className="whitespace-pre-wrap break-words">{a.quote}</span>

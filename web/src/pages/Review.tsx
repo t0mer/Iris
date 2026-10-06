@@ -4,12 +4,15 @@ import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { EmptyState } from '../components/EmptyState'
 import { KidStack } from '../components/KidAvatar'
+import { MessageFlags } from '../components/MessageFlags'
+import { revokedClass } from '../lib/revoked'
 import { MessageBody } from '../components/MessageBody'
 import { PageHeader } from '../components/PageHeader'
 import { Scores } from '../components/Scores'
 import { Button } from '../components/ui/button'
 import { Skeleton } from '../components/ui/skeleton'
 import { api, ApiError } from '../lib/api'
+import { cn } from '../lib/cn'
 import { relativeTime } from '../lib/format'
 import type { ReviewPage } from '../lib/types'
 import { QueryError } from '../components/QueryError'
@@ -52,7 +55,13 @@ export function Review() {
       )}
       <ul className="flex flex-col gap-4">
         {data?.items.map(({ message: m, classifications }) => (
-          <li key={m.id} className="flex flex-col gap-4 rounded-lg border bg-surface p-4 sm:p-5">
+          <li
+            key={m.id}
+            className={cn(
+              'flex flex-col gap-4 rounded-lg border bg-surface p-4 sm:p-5',
+              revokedClass(m, 'row'),
+            )}
+          >
             <div className="flex flex-wrap items-center gap-3">
               <KidStack names={m.kids.map((k) => k.kid_name)} />
               <span className="font-medium">{m.kids.map((k) => k.kid_name).join(' and ')}</span>
@@ -69,6 +78,9 @@ export function Review() {
               )}
               <MessageBody m={m} />
             </p>
+            <div className="flex flex-wrap items-center gap-1.5 empty:hidden">
+              <MessageFlags m={m} history />
+            </div>
             {classifications.slice(-1).map((c) => (
               <details key={c.id} className="group rounded-md bg-surface-2/60 p-3">
                 <summary className="cursor-pointer text-sm font-medium">Why it is unclear</summary>

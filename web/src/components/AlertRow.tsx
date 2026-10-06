@@ -1,6 +1,8 @@
 import { BellOff, CheckCheck, CircleAlert, Mic, ShieldOff } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { cn } from '../lib/cn'
+import { MessageFlags } from './MessageFlags'
+import { revokedClass } from '../lib/revoked'
 import { relativeTime } from '../lib/format'
 import type { Alert } from '../lib/types'
 import { KidStack } from './KidAvatar'
@@ -24,7 +26,10 @@ export function AlertRow({ alert: a }: { alert: Alert }) {
     <li>
       <Link
         to={`/alerts/${a.id}`}
-        className="group relative flex flex-col gap-1.5 py-3.5 ps-5 pe-4 hover:bg-surface-2/60 sm:ps-6"
+        className={cn(
+          'group relative flex flex-col gap-1.5 py-3.5 ps-5 pe-4 hover:bg-surface-2/60 sm:ps-6',
+          revokedClass(a, 'row'),
+        )}
       >
         <span
           aria-hidden
@@ -66,6 +71,9 @@ export function AlertRow({ alert: a }: { alert: Alert }) {
               <CheckCheck /> {a.status === 'dismissed' ? 'Dismissed' : 'Seen'}
             </Badge>
           )}
+          <MessageFlags
+            m={{ id: a.message_id, edited_at: a.edited_at, revoked_at: a.revoked_at }}
+          />
           {delivery && (
             <Badge tone={delivery.tone} title={a.delivery_error ?? undefined}>
               <delivery.icon /> {delivery.label}

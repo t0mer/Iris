@@ -42,6 +42,7 @@ interface Values {
   'alerts.recipient': string | null
   'alerts.cooldown_minutes': number
   'alerts.alert_on_review': boolean
+  'alerts.notify_changes': boolean
   'alerts.timezone': string
   'retention.message_days': number
   'retention.alert_days': number
@@ -71,6 +72,7 @@ const NUMBER_LABELS: Record<string, string> = {
 }
 const BOOLEANS = [
   'alerts.alert_on_review',
+  'alerts.notify_changes',
   'scope.monitor_from_me',
   'scope.monitor_direct',
   'scope.monitor_groups',
@@ -628,6 +630,11 @@ export function Settings() {
                 'alerts.alert_on_review',
                 'Also alert on items needing review',
                 'Off by default: those wait in the Review page instead.',
+              )}
+              {bool(
+                'alerts.notify_changes',
+                'Tell me when an alerted message is edited or deleted',
+                'Sends a short follow-up on WhatsApp. It never repeats the message.',
               )}
             </Section>
           </TabsContent>

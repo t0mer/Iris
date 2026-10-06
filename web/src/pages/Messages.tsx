@@ -6,6 +6,9 @@ import { EmptyState } from '../components/EmptyState'
 import { Chips, FilterBar } from '../components/FilterBar'
 import { Highlight } from '../components/Highlight'
 import { KidStack } from '../components/KidAvatar'
+import { cn } from '../lib/cn'
+import { MessageFlags } from '../components/MessageFlags'
+import { revokedClass } from '../lib/revoked'
 import { Failure, MessageBody, VerdictBadge } from '../components/MessageBody'
 import { PageHeader } from '../components/PageHeader'
 import { Pagination } from '../components/Pagination'
@@ -180,7 +183,10 @@ export function Messages() {
           <li key={m.id}>
             <Link
               to={`/messages/${m.id}`}
-              className="flex flex-col gap-1.5 px-4 py-3.5 hover:bg-surface-2/60"
+              className={cn(
+                'flex flex-col gap-1.5 px-4 py-3.5 hover:bg-surface-2/60',
+                revokedClass(m, 'row'),
+              )}
             >
               <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <KidStack names={m.kids.map((k) => k.kid_name)} />
@@ -199,6 +205,9 @@ export function Messages() {
                   {m.snippet ? <Highlight snippet={m.snippet} /> : <MessageBody m={m} />}
                 </span>
                 <VerdictBadge m={m} />
+              </span>
+              <span className="flex flex-wrap items-center gap-1.5 empty:hidden">
+                <MessageFlags m={m} />
               </span>
               <Failure m={m} />
             </Link>

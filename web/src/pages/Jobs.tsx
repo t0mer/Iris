@@ -15,6 +15,7 @@ import { QueryError } from '../components/QueryError'
 const WHAT: Record<string, string> = {
   process_message: 'Checking a message',
   deliver_alert: 'Sending an alert',
+  notify_change: 'Telling you a message changed',
 }
 
 export function Jobs() {

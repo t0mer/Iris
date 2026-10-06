@@ -48,6 +48,8 @@ class AlertOut(BaseModel):
     delivery_error: str | None
     notified_at: datetime | None
     created_at: datetime
+    edited_at: datetime | None  # the message was edited after the alert
+    revoked_at: datetime | None  # the sender deleted it for everyone
 
 
 class AlertDetail(AlertOut):
@@ -78,6 +80,8 @@ def _out(a: Alert, m: Message) -> AlertOut:
         status=a.status,
         delivery_status=a.delivery_status,
         delivery_error=a.delivery_error,
+        edited_at=m.edited_at,
+        revoked_at=m.revoked_at,
         notified_at=a.notified_at,
         created_at=a.created_at,
     )

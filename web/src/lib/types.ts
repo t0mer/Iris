@@ -18,6 +18,8 @@ export interface Message {
   status: string
   verdict: string | null
   redacted: boolean
+  edited_at: string | null
+  revoked_at: string | null
   kids: Kid[]
   failure: string | null
 }
@@ -41,8 +43,14 @@ export interface Classification {
   latency_ms: number | null
 }
 
+export interface Revision {
+  text: string
+  replaced_at: string
+}
+
 export interface MessageDetail extends Message {
   classifications: Classification[]
+  revisions: Revision[]
 }
 
 export interface Instance {
@@ -74,6 +82,8 @@ export interface Alert {
   delivery_error: string | null
   notified_at: string | null
   created_at: string
+  edited_at: string | null
+  revoked_at: string | null
 }
 
 export interface AlertPage {

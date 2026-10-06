@@ -23,6 +23,7 @@ const settings = {
   'alerts.recipient': null,
   'alerts.cooldown_minutes': 10,
   'alerts.alert_on_review': false,
+  'alerts.notify_changes': true,
   'alerts.timezone': 'Asia/Jerusalem',
 }
 
@@ -186,4 +187,13 @@ test('clearing a saved key asks first and sends nothing when cancelled', async (
   )
   const put = calls.find((c) => c.url === '/api/settings' && c.body)
   expect(JSON.parse(put!.body!).settings).toEqual({ 'openai.api_key': null })
+})
+
+test('the follow-up setting is on by default and can be switched off', async () => {
+  const calls = renderPage()
+  await userEvent.click(await screen.findByRole('tab', { name: 'Alerts' }))
+  await userEvent.click(await screen.findByLabelText(/Tell me when an alerted message is edited/))
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  const put = calls.find((c) => c.url === '/api/settings' && c.body)
+  expect(JSON.parse(put!.body!).settings).toEqual({ 'alerts.notify_changes': false })
 })

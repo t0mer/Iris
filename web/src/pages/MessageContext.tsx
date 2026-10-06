@@ -6,6 +6,8 @@ import { toast } from 'sonner'
 import { ClassificationCards } from '../components/ClassificationCards'
 import { KidStack } from '../components/KidAvatar'
 import { Failure, MessageBody, VerdictBadge } from '../components/MessageBody'
+import { MessageFlags } from '../components/MessageFlags'
+import { revokedClass } from '../lib/revoked'
 import { PageHeader } from '../components/PageHeader'
 import { TypeIcon } from '../components/TypeIcon'
 import { Button } from '../components/ui/button'
@@ -78,6 +80,7 @@ export function MessageContext() {
         <div className="flex items-center gap-3">
           <KidStack names={detail.kids.map((k) => k.kid_name)} />
           <VerdictBadge m={detail} />
+          <MessageFlags m={detail} history />
           <Failure m={detail} />
         </div>
       )}
@@ -109,6 +112,7 @@ export function MessageContext() {
                 'flex max-w-[88%] flex-col gap-1 rounded-lg px-3.5 py-2.5 sm:max-w-[75%]',
                 m.from_me ? 'self-end bg-primary-soft' : 'self-start border bg-surface',
                 isTarget && 'ring-2 ring-primary',
+                revokedClass(m),
               )}
             >
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -118,7 +122,10 @@ export function MessageContext() {
               <span className="text-[15px]">
                 <MessageBody m={m} />
               </span>
-              {isTarget && <VerdictBadge m={m} />}
+              <span className="flex flex-wrap items-center gap-1.5 empty:hidden">
+                {isTarget && <VerdictBadge m={m} />}
+                <MessageFlags m={m} history />
+              </span>
             </li>
           )
         })}
