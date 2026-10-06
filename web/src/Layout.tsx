@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { Check, LogOut, Monitor, Moon, MoreHorizontal, Sun } from 'lucide-react'
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { IrisMark } from './components/IrisMark'
+import { PageLoading } from './components/PageLoading'
 import { NAV, TAB_BAR, type NavItem } from './components/nav'
 import { Button } from './components/ui/button'
 import { Dialog, DialogContent, DialogTrigger } from './components/ui/dialog'
@@ -320,7 +321,9 @@ export function Layout() {
           tabIndex={-1}
           className="mx-auto w-full max-w-6xl flex-1 px-4 pb-24 pt-5 outline-none md:px-8 md:pb-10 md:pt-8"
         >
-          <Outlet />
+          <Suspense fallback={<PageLoading />}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
       <Toaster />

@@ -1,17 +1,22 @@
+import { lazy } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import { Layout } from './Layout'
 import { useMe } from './lib/auth'
-import { AlertDetail } from './pages/AlertDetail'
-import { Alerts } from './pages/Alerts'
-import { Chats } from './pages/Chats'
 import { Dashboard } from './pages/Dashboard'
-import { Instances } from './pages/Instances'
-import { Jobs } from './pages/Jobs'
 import { Login } from './pages/Login'
-import { MessageContext } from './pages/MessageContext'
-import { Messages } from './pages/Messages'
-import { Review } from './pages/Review'
-import { Settings } from './pages/Settings'
+
+// Everything but the home screen loads on demand, so the first paint on a phone stays small.
+const page = <K extends string>(load: () => Promise<Record<K, React.ComponentType>>, name: K) =>
+  lazy(() => load().then((m) => ({ default: m[name] })))
+const Alerts = page(() => import('./pages/Alerts'), 'Alerts')
+const AlertDetail = page(() => import('./pages/AlertDetail'), 'AlertDetail')
+const Review = page(() => import('./pages/Review'), 'Review')
+const Messages = page(() => import('./pages/Messages'), 'Messages')
+const MessageContext = page(() => import('./pages/MessageContext'), 'MessageContext')
+const Chats = page(() => import('./pages/Chats'), 'Chats')
+const Jobs = page(() => import('./pages/Jobs'), 'Jobs')
+const Instances = page(() => import('./pages/Instances'), 'Instances')
+const Settings = page(() => import('./pages/Settings'), 'Settings')
 
 export function App() {
   const { data: me, isLoading } = useMe()
