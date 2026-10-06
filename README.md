@@ -115,6 +115,8 @@ docker compose up -d
 Open the portal on port 8080 and sign in with the admin credentials. They are used only to create the first
 account; change the password under **Settings → Account**.
 
+![Login](assets/screenshots/login.png)
+
 > **Back up `IRIS_SECRET_KEY`.** It encrypts every stored secret (API keys). Lose it and you must re-enter them.
 
 The container runs as a non-root user (uid 10001), applies database migrations on start, and has a health
@@ -144,6 +146,8 @@ IRIS_ADMIN_USERNAME=admin IRIS_ADMIN_PASSWORD=change-me IRIS_DATA_DIR=./data \
 4. Under **Settings → Alerts** choose the instance that **sends** alerts, enter the parent's number
    (international format, digits only, e.g. `972501234567`) and press **Test**. A real WhatsApp message is
    sent using the values you typed, before you save.
+
+![Settings: alerts](assets/screenshots/settings-alerts.png)
 
 ![Instances](assets/screenshots/instances.png)
 
@@ -190,6 +194,8 @@ UI only ever say whether one is set.
 
 Switching the transcription provider takes effect immediately, with no restart.
 
+![Settings: providers](assets/screenshots/settings-providers.png)
+
 ![Settings: classification](assets/screenshots/settings-classification.png)
 
 **Thresholds.** For each moderation category a score at or above **high** is harmful; between **low** and
@@ -224,7 +230,7 @@ Time: 06/10 17:14
 Open: https://iris.example.com/alerts/12?s=…
 ```
 
-Voice-note quotes are prefixed with 🎤 and image captions with 🖼️. The signed link at the end lets Iris
+Voice-note quotes are prefixed with 🎤 and image, sticker and video captions with 🖼️. The signed link at the end lets Iris
 recognise its own alerts if they come back through a monitored number, and it cannot be copied onto
 different text.
 
@@ -256,34 +262,40 @@ and its reason in the message list (it is never silently shown as pending).
 
 ### Dark mode
 
-The portal follows your system's light or dark preference.
+The portal follows your system's light or dark preference. The button in the top bar cycles between
+**System**, **Light** and **Dark** and remembers your choice in the browser.
 
 ![Dashboard in dark mode](assets/screenshots/dashboard-dark.png)
+
+![Alerts in dark mode](assets/screenshots/alerts-dark.png)
 
 ## API
 
 All endpoints are under `/api`, return JSON, and need the session cookie from `POST /api/auth/login`,
-except `/api/auth/login`, `/api/health` and `/api/version`. Interactive OpenAPI docs are at **`/api/docs`**
-(sign in first).
+except `/api/auth/login`, `/api/health` and `/api/version`. Interactive OpenAPI docs are at **`/api/docs`** and the schema at
+`/api/openapi.json`, both behind the login.
 
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/api/auth/login`, `/api/auth/logout`, `/api/auth/password` | Session login (HttpOnly, SameSite=Strict, 7 days; 5 failures per 15 minutes per IP), logout, change password |
+| GET | `/api/auth/me` | The signed-in user (401 when not signed in) |
 | GET | `/api/health`, `/api/version` | Liveness (database and workers), version |
 | GET | `/api/stats` | Dashboard numbers |
 | GET | `/api/messages` | Search: `q`, `instance_id`, `chat_id`, `sender`, `type`, `verdict`, `from`, `to`, `page`, `page_size` (max 100) |
 | GET | `/api/messages/{id}`, `/api/messages/{id}/context` | One message with classifications; surrounding messages |
 | POST | `/api/messages/{id}/reprocess` | Re-queue classification (not for redacted messages) |
-| GET | `/api/alerts`, `/api/alerts/{id}` | List with filters (`status`, `instance_id`, `chat_id`, `category`, dates); detail |
+| GET | `/api/alerts`, `/api/alerts/{id}` | List with filters (`status`, `delivery_status`, `instance_id`, `chat_id`, `category`, `from`, `to`, `page`, `page_size`); detail |
 | PATCH | `/api/alerts/{id}` | Set status to `new`, `acknowledged` or `dismissed` |
 | POST | `/api/alerts/{id}/resend` | Send the alert again (ignores the cooldown) |
 | GET, POST | `/api/review`, `/api/review/{message_id}` | Review queue; resolve as `safe` or `harmful` |
 | GET | `/api/chats` | Known chats with kids and counts |
 | GET/POST/PATCH/DELETE | `/api/instances[/{id}]` | Manage monitored numbers (API keys are never returned) |
 | POST | `/api/instances/{id}/rotate-token`, `/register-webhook` | Rotate the webhook token; register it in OpenWA |
-| GET, PUT | `/api/settings`, `/api/settings/thresholds` | Read and write settings; effective thresholds |
+| GET, PUT | `/api/settings` | Read and write settings (thresholds are the key `classification.thresholds`) |
+| GET | `/api/settings/thresholds` | Effective per-category thresholds next to their defaults (read-only) |
 | POST | `/api/settings/test/{openai\|cloudflare\|alert}` | Test a provider with the values entered |
-| GET | `/api/jobs` | Failed and dead jobs; `POST /api/jobs/{id}/retry` |
+| GET | `/api/jobs` | Failed and dead jobs with their errors |
+| POST | `/api/jobs/{id}/retry` | Retry a failed or dead job |
 | POST | `/webhooks/{token}` | OpenWA delivers here (authenticated by the token, and by an HMAC signature once Iris registered the webhook) |
 
 ## Metrics
@@ -295,7 +307,8 @@ except `/api/auth/login`, `/api/health` and `/api/version`. Interactive OpenAPI 
 | `iris_webhooks_total` | `instance`, `result` (accepted, duplicate, skipped, rejected) |
 | `iris_messages_processed_total` | `type`, `verdict` |
 | `iris_stage_duration_seconds` | `stage` |
-| `iris_provider_requests_total`, `iris_provider_duration_seconds` | `provider`, `endpoint`, `status` |
+| `iris_provider_requests_total` | `provider`, `endpoint`, `status` |
+| `iris_provider_duration_seconds` | `provider`, `endpoint` |
 | `iris_transcription_seconds_audio_total` | `provider` |
 | `iris_alerts_total` | `category`, `delivery_status` |
 | `iris_jobs` | `status` |
