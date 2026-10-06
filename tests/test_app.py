@@ -39,10 +39,13 @@ async def test_security_headers(client: httpx.AsyncClient) -> None:
     assert "default-src 'self'" in h["content-security-policy"]
 
 
-async def test_docs_require_auth(client: httpx.AsyncClient) -> None:
+async def test_docs_and_schema_require_auth(client: httpx.AsyncClient) -> None:
     assert (await client.get("/api/docs")).status_code == 401
+    assert (await client.get("/api/openapi.json")).status_code == 401
     await client.post("/api/auth/login", json={"username": "admin", "password": "correct-horse"})
     assert (await client.get("/api/docs")).status_code == 200
+    schema = await client.get("/api/openapi.json")
+    assert schema.status_code == 200 and "/api/alerts" in schema.json()["paths"]
 
 
 async def test_unknown_api_path_404_not_spa(client: httpx.AsyncClient) -> None:

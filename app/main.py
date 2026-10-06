@@ -75,7 +75,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,
-        openapi_url="/api/openapi.json",
+        openapi_url=None,  # served below, behind the login, like /api/docs
     )
 
     @app.middleware("http")
@@ -112,6 +112,10 @@ def create_app() -> FastAPI:
         async with request.app.state.session_factory() as db:
             body = await render_metrics(db)
         return Response(body, media_type="text/plain; version=0.0.4; charset=utf-8")
+
+    @app.get("/api/openapi.json", include_in_schema=False)
+    async def openapi_schema(_: Annotated[User, Depends(current_user)]) -> JSONResponse:
+        return JSONResponse(app.openapi())
 
     @app.get("/api/docs", include_in_schema=False)
     async def docs(_: Annotated[User, Depends(current_user)]) -> HTMLResponse:
