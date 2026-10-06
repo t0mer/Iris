@@ -13,10 +13,11 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.alerts.service import alert_on_harmful, alert_on_review, needs_redaction, redact_message
+from app.chats import resolve_group_names
 from app.classify.pipeline import PipelineOutcome, run_pipeline
 from app.classify.stages import StageContext
 from app.classify.thresholds import effective_thresholds
-from app.db.models import Classification, Instance, Message
+from app.db.models import Chat, Classification, Instance, Message
 from app.jobs.queue import ClaimedJob, PermanentError
 from app.media import ffmpeg
 from app.media.fetch import MAX_AUDIO_SECONDS, MediaSkipped, download, job_tmpdir
@@ -173,6 +174,11 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
         message.status = "processing"
         await db.execute(delete(Classification).where(Classification.message_id == message.id))
         await db.commit()
+        # Name the group before anything quotes it (an alert snapshots the chat name). Best effort.
+        chat = await db.get(Chat, message.chat_id)
+        if chat is not None and chat.is_group and not chat.name:
+            await resolve_group_names(deps.session_factory, deps.key_bytes, chat_id=chat.id)
+            await db.refresh(chat)
 
         legacy = job.payload.get("media")  # jobs queued before the media column existed
         if message.media is None and isinstance(legacy, dict):

@@ -8,6 +8,7 @@ from loguru import logger
 from sqlalchemy.exc import OperationalError
 
 from app.alerts.delivery import deliver_alert
+from app.chats import resolve_group_names
 from app.jobs import queue
 from app.jobs.handlers import Deps, process_message
 from app.jobs.queue import ClaimedJob, PermanentError, TransientError
@@ -78,13 +79,20 @@ class WorkerPool:
         return self._size
 
     async def _maintenance(self) -> None:
-        """Re-queue jobs whose worker vanished (not only at startup)."""
+        """Housekeeping: re-queue orphaned jobs, and name groups that still have no name."""
+        first = True
         while True:
-            await asyncio.sleep(60)
+            if not first:
+                await asyncio.sleep(60)
+            first = False
             try:
                 await queue.recover_stale(self._deps.session_factory)
             except Exception:
                 logger.exception("stale job recovery failed")
+            try:
+                await resolve_group_names(self._deps.session_factory, self._deps.key_bytes)
+            except Exception:
+                logger.exception("group name lookup failed")
 
     async def _loop(self, n: int) -> None:
         while True:

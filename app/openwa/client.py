@@ -74,6 +74,15 @@ class OpenWAClient:
         body = data.get("data", data) if isinstance(data, dict) else {}
         return str(body.get("id", ""))
 
+    async def get_group_name(self, session_id: str, group_id: str) -> str | None:
+        """The group's subject from `GET /api/sessions/{id}/groups/{groupId}` (None if unnamed)."""
+        data = await self._request(
+            "GET", f"/api/sessions/{quote(session_id, safe='')}/groups/{quote(group_id, safe='')}"
+        )
+        body = data.get("data", data) if isinstance(data, dict) else {}
+        name = body.get("name") if isinstance(body, dict) else None
+        return name.strip() or None if isinstance(name, str) else None
+
     async def send_text(self, session_id: str, chat_id: str, text: str) -> None:
         await self._request(
             "POST",
