@@ -75,6 +75,33 @@ async def _in_scope(db: AsyncSession, msg: IncomingMessage) -> bool:
     return bool(await get_setting(db, key))
 
 
+def _media_ref(inst_id: int, msg: IncomingMessage) -> dict[str, Any]:
+    assert msg.media is not None
+    return {
+        "instance_id": inst_id,
+        "chat_id": msg.wa_chat_id,
+        "message_ref": msg.wa_message_ref,
+        "mimetype": msg.media.mimetype,
+        "filename": msg.media.filename,
+        "size_bytes": msg.media.size_bytes,
+    }
+
+
+def _remember_media_ref(message: Message, inst_id: int, msg: IncomingMessage) -> None:
+    """Keep the other session's way to fetch the media: it may be the only one OpenWA can serve."""
+    if not msg.media:
+        return
+    ref = _media_ref(inst_id, msg)
+    current = message.media
+    if not isinstance(current, dict) or not current.get("message_ref"):
+        message.media = ref
+        return
+    known = [current, *current.get("alternates", [])]
+    if any(k.get("instance_id") == inst_id for k in known if isinstance(k, dict)):
+        return
+    message.media = {**current, "alternates": [*current.get("alternates", []), ref]}
+
+
 async def _store_once(db: AsyncSession, inst_id: int, kid_name: str, msg: IncomingMessage) -> str:
     # The message hash is identical for everyone who sees the message, but in a DIRECT chat each
     # monitored session sees the other party under its own chat id. So dedupe on the hash alone:
@@ -90,6 +117,7 @@ async def _store_once(db: AsyncSession, inst_id: int, kid_name: str, msg: Incomi
         if msg.from_me and not existing.from_me:
             # The sender's own session reported it: the author is a monitored kid.
             existing.from_me, existing.sender_name = True, kid_name
+        _remember_media_ref(existing, inst_id, msg)
         await db.commit()
         return "duplicate"
 
@@ -105,16 +133,7 @@ async def _store_once(db: AsyncSession, inst_id: int, kid_name: str, msg: Incomi
     if await db.get(ChatInstance, (chat.id, inst_id)) is None:
         db.add(ChatInstance(chat_id=chat.id, instance_id=inst_id))
 
-    media: dict[str, Any] | None = None
-    if msg.media:
-        media = {
-            "instance_id": inst_id,
-            "chat_id": msg.wa_chat_id,
-            "message_ref": msg.wa_message_ref,
-            "mimetype": msg.media.mimetype,
-            "filename": msg.media.filename,
-            "size_bytes": msg.media.size_bytes,
-        }
+    media = _media_ref(inst_id, msg) if msg.media else None
     message = Message(
         wa_message_id=msg.wa_message_id,
         chat_id=chat.id,

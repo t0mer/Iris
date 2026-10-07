@@ -68,11 +68,31 @@ async def openwa_for(
     return client, instance.openwa_instance_id
 
 
+def media_refs(message: Message) -> list[dict[str, Any]]:
+    """Every OpenWA session's way to fetch this message's media, the first reporter's first.
+
+    A message between two monitored phones is reported by both sessions. OpenWA often keeps the
+    media only for one of them (the receiver's copy), so all references are kept as fallbacks.
+    """
+    primary = media_ref(message)
+    alternates = primary.get("alternates")
+    extra = [a for a in alternates if isinstance(a, dict)] if isinstance(alternates, list) else []
+    return [primary, *[a for a in extra if a.get("message_ref")]]
+
+
 async def fetch_original(db: AsyncSession, message: Message, key_bytes: bytes, dest: Path) -> str:
-    """Download the message's media from the OpenWA session that received it; returns its type."""
-    media = media_ref(message)
-    client, session_id = await openwa_for(db, media, key_bytes)
-    try:
-        return await download(client, session_id, media["chat_id"], media["message_ref"], dest)
-    finally:
-        await client.aclose()
+    """Download the message's media, from the session that has it; returns its content type."""
+    first_error: PermanentError | None = None
+    for ref in media_refs(message):
+        try:
+            client, session_id = await openwa_for(db, ref, key_bytes)
+        except PermanentError as exc:
+            first_error = first_error or exc
+            continue
+        try:
+            return await download(client, session_id, ref["chat_id"], ref["message_ref"], dest)
+        except PermanentError as exc:  # this session has no copy: ask the next one
+            first_error = first_error or exc
+        finally:
+            await client.aclose()
+    raise first_error or PermanentError("message has no media reference")
