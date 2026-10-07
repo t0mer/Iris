@@ -17,6 +17,7 @@ import { IrisRing } from '../components/IrisRing'
 import { PageHeader } from '../components/PageHeader'
 import { Skeleton } from '../components/ui/skeleton'
 import { api } from '../lib/api'
+import { fileSize } from '../lib/format'
 import type { AlertPage, Stats, Timeline } from '../lib/types'
 import { QueryError } from '../components/QueryError'
 
@@ -110,11 +111,24 @@ function headline(s: Stats, items: Item[]) {
   }
 }
 
-function Stat({ label, value, to }: { label: string; value: number; to?: string }) {
+function Stat({
+  label,
+  value,
+  to,
+  note,
+}: {
+  label: string
+  value: number
+  to?: string
+  note?: string
+}) {
   // <dl> may only hold <dt>/<dd> groups, so a linked stat puts its (stretched) link inside the <dd>.
   return (
     <div className="relative flex flex-col-reverse gap-1.5 px-4 py-3 hover:bg-surface-2/60 sm:px-5">
-      <dt className="text-sm text-muted-foreground">{label}</dt>
+      <dt className="text-sm text-muted-foreground">
+        {label}
+        {note && <span className="block text-xs">{note}</span>}
+      </dt>
       <dd className="tabular text-2xl font-semibold leading-none">
         {to ? (
           <Link to={to} aria-label={`${label}: ${value}`} className="after:absolute after:inset-0">
@@ -185,11 +199,18 @@ export function Dashboard() {
             <p className="text-3xl font-semibold tracking-tight sm:text-4xl">{title}</p>
             <p className="max-w-prose text-muted-foreground">{sub}</p>
           </div>
-          <dl className="grid grid-cols-2 divide-x divide-y rounded-md border sm:grid-cols-4 sm:divide-y-0 rtl:divide-x-reverse">
+          <dl className="grid grid-cols-2 divide-x divide-y rounded-md border sm:grid-flow-col sm:auto-cols-fr sm:divide-y-0 rtl:divide-x-reverse">
             <Stat label="Messages today" value={s.messages_today} to="/messages" />
             <Stat label="Last 7 days" value={s.messages_7d} to="/messages" />
             <Stat label="In the queue" value={s.queue_depth} />
             <Stat label="Phones" value={s.instances} to="/instances" />
+            {s.media_policy && s.media_policy !== 'off' && (
+              <Stat
+                label="Media kept"
+                value={s.media_files ?? 0}
+                note={fileSize(s.media_bytes ?? 0)}
+              />
+            )}
           </dl>
         </div>
       </section>

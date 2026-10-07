@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { ClassificationCards } from '../components/ClassificationCards'
 import { KidStack } from '../components/KidAvatar'
 import { Failure, MessageBody, VerdictBadge } from '../components/MessageBody'
+import { MediaPlayer } from '../components/MediaPlayer'
 import { MessageFlags } from '../components/MessageFlags'
 import { revokedClass } from '../lib/revoked'
 import { PageHeader } from '../components/PageHeader'
@@ -82,6 +83,12 @@ export function MessageContext() {
           <VerdictBadge m={detail} />
           <MessageFlags m={detail} history />
           <Failure m={detail} />
+        </div>
+      )}
+
+      {detail?.media && !detail.redacted && (
+        <div className="flex flex-col gap-2">
+          <MediaPlayer media={detail.media} />
         </div>
       )}
 

@@ -16,6 +16,7 @@ const MessageContext = page(() => import('./pages/MessageContext'), 'MessageCont
 const Chats = page(() => import('./pages/Chats'), 'Chats')
 const Jobs = page(() => import('./pages/Jobs'), 'Jobs')
 const Instances = page(() => import('./pages/Instances'), 'Instances')
+const MediaViewer = page(() => import('./pages/MediaViewer'), 'MediaViewer')
 const TryIt = page(() => import('./pages/TryIt'), 'TryIt')
 const Settings = page(() => import('./pages/Settings'), 'Settings')
 
@@ -35,6 +36,7 @@ export function App() {
         <Route path="chats" element={<Chats />} />
         <Route path="jobs" element={<Jobs />} />
         <Route path="instances" element={<Instances />} />
+        <Route path="media/:id" element={<MediaViewer />} />
         <Route path="try" element={<TryIt />} />
         <Route path="settings" element={<Settings />} />
       </Route>

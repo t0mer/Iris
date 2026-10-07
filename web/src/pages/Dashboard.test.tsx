@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { Dashboard } from './Dashboard'
 
@@ -79,4 +79,18 @@ test('shows an error that says what to do when the stats cannot be loaded', asyn
     </QueryClientProvider>,
   )
   expect(await screen.findByRole('alert')).toHaveTextContent(/Could not load the dashboard/)
+})
+
+test('shows how much media is kept only when keeping is on', async () => {
+  renderPage()
+  await screen.findByText('Messages today')
+  expect(screen.queryByText('Media kept')).not.toBeInTheDocument()
+})
+
+test('shows the number and size of kept media when it is on', async () => {
+  cleanup()
+  renderPage({ media_policy: 'harmful', media_files: 7, media_bytes: 3 * 1024 * 1024 })
+  const label = await screen.findByText('Media kept')
+  expect(label.closest('div')).toHaveTextContent('3.0 MB')
+  expect(label.closest('div')).toHaveTextContent('7')
 })

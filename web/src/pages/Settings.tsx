@@ -6,6 +6,7 @@ import {
   Clock,
   Database,
   Eye,
+  HardDrive,
   KeyRound,
   Loader2,
   RotateCcw,
@@ -50,6 +51,16 @@ interface Values {
   'alerts.timezone': string
   'retention.message_days': number
   'retention.alert_days': number
+  'media.policy': 'off' | 'harmful' | 'harmful_review' | 'all'
+  'media.backend': 'local' | 's3'
+  'media.s3_endpoint': string | null
+  'media.s3_bucket': string | null
+  'media.s3_region': string
+  'media.s3_access_key': string | null
+  'media.s3_secret_key': Secret
+  'media.s3_prefix': string
+  'media.s3_path_style': boolean
+  'media.retention_days': number
 }
 interface TestResult {
   ok: boolean
@@ -63,17 +74,19 @@ const TABS = [
   'Alerts',
   'Scope',
   'Retention',
+  'Media',
   'Database',
   'Account',
 ] as const
 type Tab = (typeof TABS)[number]
-const SECRETS = ['openai.api_key', 'transcription.cloudflare_api_token']
+const SECRETS = ['openai.api_key', 'transcription.cloudflare_api_token', 'media.s3_secret_key']
 const NUMBERS = [
   'alerts.cooldown_minutes',
   'classification.context_window_size',
   'classification.context_max_age_hours',
   'retention.message_days',
   'retention.alert_days',
+  'media.retention_days',
 ]
 const NUMBER_LABELS: Record<string, string> = {
   'alerts.cooldown_minutes': 'Cooldown per chat',
@@ -81,6 +94,7 @@ const NUMBER_LABELS: Record<string, string> = {
   'classification.context_max_age_hours': 'Context goes back',
   'retention.message_days': 'Keep messages for',
   'retention.alert_days': 'Keep alerts for',
+  'media.retention_days': 'Keep media for',
 }
 const BOOLEANS = [
   'alerts.alert_on_review',
@@ -88,6 +102,7 @@ const BOOLEANS = [
   'scope.monitor_from_me',
   'scope.monitor_direct',
   'scope.monitor_groups',
+  'media.s3_path_style',
 ]
 const ICON: Record<Tab, LucideIcon> = {
   Providers: KeyRound,
@@ -95,6 +110,7 @@ const ICON: Record<Tab, LucideIcon> = {
   Alerts: Bell,
   Scope: Eye,
   Retention: Clock,
+  Media: HardDrive,
   Database: Database,
   Account: KeyRound,
 }
@@ -135,9 +151,11 @@ function SecretInput({
 function TestButton({
   target,
   body,
+  label = 'Test',
 }: {
+  label?: string
   target: string
-  body: Record<string, string | undefined>
+  body: Record<string, unknown>
 }) {
   const test = useMutation({
     mutationFn: () =>
@@ -150,7 +168,7 @@ function TestButton({
     <div className="flex flex-wrap items-center gap-3">
       <Button variant="outline" onClick={() => test.mutate()} disabled={test.isPending}>
         {test.isPending && <Loader2 className="animate-spin" />}{' '}
-        {test.isPending ? 'Testing' : 'Test'}
+        {test.isPending ? 'Testing' : label}
       </Button>
       {test.data && (
         <span
@@ -341,6 +359,7 @@ export function Settings() {
   }
   const set = (k: keyof Values) => (v: string) => setEdit((e) => ({ ...e, [k]: v }))
   const provider = get('transcription.provider')
+  const mediaOn = get('media.policy') !== 'off'
 
   async function save(changes: Record<string, Change>, clearKeys: string[] = Object.keys(changes)) {
     setSaving(true)
@@ -627,11 +646,177 @@ export function Settings() {
           <TabsContent value="Retention" className="flex flex-col gap-5">
             <Section
               title="How long to keep things"
-              description="Messages tied to an alert are kept until that alert expires. Media is never stored beyond processing."
+              description="Messages tied to an alert are kept until that alert expires. Kept media has its own limit under Media."
             >
               {num('retention.message_days', 'Keep messages for (days)', 1)}
               {num('retention.alert_days', 'Keep alerts for (days)', 1)}
             </Section>
+          </TabsContent>
+
+          <TabsContent value="Media" className="flex flex-col gap-5">
+            <Section
+              title="Keep media"
+              description="By default Iris deletes every photo, voice note and video as soon as it has been checked. Turn this on to keep copies you can open from alerts."
+            >
+              <Toggle
+                label="Keep media"
+                hint="Files can only be opened after you sign in to Iris."
+                checked={mediaOn}
+                onChange={(on) => set('media.policy')(on ? 'harmful' : 'off')}
+              />
+              {mediaOn && (
+                <fieldset className="flex flex-col gap-2">
+                  <legend className="mb-1 text-sm font-medium">What to keep</legend>
+                  {(
+                    [
+                      ['harmful', 'Only what Iris judges harmful', 'The media behind your alerts.'],
+                      [
+                        'harmful_review',
+                        'Harmful and needs a look',
+                        'Also the items waiting in the review queue.',
+                      ],
+                      [
+                        'all',
+                        'Everything',
+                        'Every photo, voice note and video. Uses the most space.',
+                      ],
+                    ] as const
+                  ).map(([value, label, hint]) => (
+                    <label key={value} className="flex items-start gap-3 text-sm">
+                      <input
+                        type="radio"
+                        name="media-policy"
+                        className="mt-1 size-4 accent-[var(--color-primary)]"
+                        checked={get('media.policy') === value}
+                        onChange={() => set('media.policy')(value)}
+                      />
+                      <span className="flex flex-col">
+                        <span className="font-medium">{label}</span>
+                        <span className="text-muted-foreground">{hint}</span>
+                      </span>
+                    </label>
+                  ))}
+                </fieldset>
+              )}
+              <p className="max-w-prose text-sm text-muted-foreground">
+                Content Iris withholds (anything sexual involving minors, or sexual images and
+                videos) is never kept, whatever you choose.
+              </p>
+            </Section>
+
+            {mediaOn && (
+              <>
+                <Section title="Where to keep it">
+                  <Field label="Storage" className="max-w-72">
+                    <Select
+                      value={get('media.backend')}
+                      onChange={(e) => set('media.backend')(e.target.value)}
+                    >
+                      <option value="local">This server&apos;s disk</option>
+                      <option value="s3">S3-compatible storage</option>
+                    </Select>
+                  </Field>
+                  {get('media.backend') === 'local' ? (
+                    <p className="max-w-prose text-sm text-muted-foreground">
+                      Files go to the <code>media</code> folder inside Iris&apos;s data folder, next
+                      to the database. In Docker that is the data volume.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="max-w-prose text-sm text-muted-foreground">
+                        Works with Cloudflare R2, AWS S3, SeaweedFS, MinIO and other S3-compatible
+                        services. Create the bucket first.
+                      </p>
+                      <Field
+                        label="Endpoint"
+                        hint="For example https://ACCOUNT.r2.cloudflarestorage.com, https://s3.eu-west-1.amazonaws.com or http://seaweed.lan:8333"
+                      >
+                        <Input
+                          dir="ltr"
+                          value={get('media.s3_endpoint')}
+                          onChange={(e) => set('media.s3_endpoint')(e.target.value)}
+                          autoComplete="off"
+                        />
+                      </Field>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <Field label="Bucket">
+                          <Input
+                            dir="ltr"
+                            value={get('media.s3_bucket')}
+                            onChange={(e) => set('media.s3_bucket')(e.target.value)}
+                            autoComplete="off"
+                          />
+                        </Field>
+                        <Field label="Region" hint="Use auto for Cloudflare R2.">
+                          <Input
+                            dir="ltr"
+                            value={get('media.s3_region')}
+                            onChange={(e) => set('media.s3_region')(e.target.value)}
+                            autoComplete="off"
+                          />
+                        </Field>
+                      </div>
+                      <Field label="Access key ID">
+                        <Input
+                          dir="ltr"
+                          value={get('media.s3_access_key')}
+                          onChange={(e) => set('media.s3_access_key')(e.target.value)}
+                          autoComplete="off"
+                        />
+                      </Field>
+                      <Field label="Secret access key">
+                        <SecretInput
+                          value={get('media.s3_secret_key')}
+                          isSet={data['media.s3_secret_key'].set}
+                          onChange={set('media.s3_secret_key')}
+                          onClear={() => void save({ 'media.s3_secret_key': null })}
+                        />
+                      </Field>
+                      <Field
+                        label="Folder in the bucket"
+                        hint="Optional. Everything is kept under it."
+                      >
+                        <Input
+                          dir="ltr"
+                          value={get('media.s3_prefix')}
+                          onChange={(e) => set('media.s3_prefix')(e.target.value)}
+                          autoComplete="off"
+                        />
+                      </Field>
+                      {bool(
+                        'media.s3_path_style',
+                        'Path-style addresses',
+                        'Keep this on for R2, SeaweedFS and MinIO. Turn it off for AWS S3 buckets that need bucket.host addresses.',
+                      )}
+                    </>
+                  )}
+                  <TestButton
+                    target="media"
+                    body={{
+                      media: {
+                        backend: get('media.backend'),
+                        endpoint: get('media.s3_endpoint') || undefined,
+                        bucket: get('media.s3_bucket') || undefined,
+                        region: get('media.s3_region') || undefined,
+                        access_key: get('media.s3_access_key') || undefined,
+                        secret_key: edit['media.s3_secret_key'] || undefined,
+                        prefix: get('media.s3_prefix'),
+                        path_style: get('media.s3_path_style') === 'true',
+                      },
+                    }}
+                    label="Test storage"
+                  />
+                </Section>
+
+                <Section title="How long to keep it">
+                  {num('media.retention_days', 'Keep media for (days)', 1)}
+                  <p className="max-w-prose text-sm text-muted-foreground">
+                    Older files are deleted from the storage. The message and its alert stay until
+                    their own limits under Retention.
+                  </p>
+                </Section>
+              </>
+            )}
           </TabsContent>
 
           <TabsContent value="Database">

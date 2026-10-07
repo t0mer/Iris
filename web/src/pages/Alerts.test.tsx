@@ -77,3 +77,24 @@ test('warns that delivery is not set up when alerts were saved but could not be 
   expect(await screen.findByText(/Alert delivery is not set up/)).toBeInTheDocument()
   expect(screen.getByRole('link', { name: /Set up delivery/ })).toHaveAttribute('href', '/settings')
 })
+
+const kept = { id: 7, kind: 'image', content_type: 'image/png', size_bytes: 2048, inline: true }
+
+test('an alert with kept media says so in the list', async () => {
+  renderWithApp(<Alerts />, {
+    '/api/alerts': page([{ ...alert, media: kept }]),
+    '/api/instances': [],
+  })
+  const row = await screen.findByRole('link', { name: /Noa/ })
+  expect(within(row).getByText('Photo kept')).toBeInTheDocument()
+  expect(within(row).queryByRole('link')).not.toBeInTheDocument() // no link nested in a link
+})
+
+test('a withheld alert never shows a media badge', async () => {
+  renderWithApp(<Alerts />, {
+    '/api/alerts': page([{ ...alert, redacted: true, quote: null, media: kept }]),
+    '/api/instances': [],
+  })
+  await screen.findByText(/Content withheld/)
+  expect(screen.queryByText('Photo kept')).not.toBeInTheDocument()
+})

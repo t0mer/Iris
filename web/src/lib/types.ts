@@ -49,6 +49,7 @@ export interface Revision {
 }
 
 export interface MessageDetail extends Message {
+  media?: KeptMedia | null
   classifications: Classification[]
   revisions: Revision[]
 }
@@ -64,6 +65,19 @@ export interface Instance {
   webhook_url: string
   last_webhook_at: string | null
   created_at: string
+}
+
+export interface KeptMedia {
+  id: number
+  kind: 'image' | 'audio' | 'video'
+  content_type: string
+  size_bytes: number
+  inline: boolean
+}
+
+export interface MediaInfo extends KeptMedia {
+  message_id: number
+  alert_id: number | null
 }
 
 export interface Alert {
@@ -84,6 +98,7 @@ export interface Alert {
   created_at: string
   edited_at: string | null
   revoked_at: string | null
+  media?: KeptMedia | null
 }
 
 export interface AlertPage {
@@ -123,6 +138,9 @@ export interface Stats {
   delivery_configured: boolean
   instances: number
   silent_instances: number
+  media_policy?: string
+  media_files?: number
+  media_bytes?: number
 }
 
 export interface Chat {

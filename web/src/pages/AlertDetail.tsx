@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
+import { MediaPlayer } from '../components/MediaPlayer'
 import { MessageFlags } from '../components/MessageFlags'
 import { revokedClass } from '../lib/revoked'
 import { KidStack } from '../components/KidAvatar'
@@ -125,6 +126,21 @@ export function AlertDetail() {
         >
           <span className="whitespace-pre-wrap break-words">{a.quote}</span>
         </blockquote>
+      )}
+
+      {a.media && !a.redacted && (
+        <section aria-labelledby="kept" className="flex flex-col gap-3">
+          <h2 id="kept" className="text-lg font-semibold">
+            Kept media
+          </h2>
+          <MediaPlayer media={a.media} />
+          <Link
+            to={`/media/${a.media.id}`}
+            className="w-fit text-sm font-medium text-primary hover:underline"
+          >
+            Open on its own page
+          </Link>
+        </section>
       )}
 
       <div className="flex flex-wrap gap-2">

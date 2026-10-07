@@ -6,6 +6,7 @@ import { revokedClass } from '../lib/revoked'
 import { relativeTime } from '../lib/format'
 import type { Alert } from '../lib/types'
 import { KidStack } from './KidAvatar'
+import { MediaBadge } from './MediaPlayer'
 import { Badge } from './ui/badge'
 
 const DELIVERY: Record<
@@ -71,6 +72,7 @@ export function AlertRow({ alert: a }: { alert: Alert }) {
               <CheckCheck /> {a.status === 'dismissed' ? 'Dismissed' : 'Seen'}
             </Badge>
           )}
+          {a.media && !a.redacted && <MediaBadge media={a.media} />}
           <MessageFlags
             m={{ id: a.message_id, edited_at: a.edited_at, revoked_at: a.revoked_at }}
           />
