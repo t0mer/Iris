@@ -15,6 +15,7 @@ from app.alerts.service import (
     delivery_configured,
     scores_from_classifications,
 )
+from app.api.media import MediaOut, media_out
 from app.api.messages import (
     ClassificationOut,
     MessageOut,
@@ -25,7 +26,7 @@ from app.api.messages import (
 )
 from app.config import Settings, get_settings
 from app.db.jsonq import json_array_contains
-from app.db.models import Alert, Classification, Message, MessageReceipt
+from app.db.models import Alert, Classification, Message, MessageReceipt, StoredMedia
 from app.deps import get_db
 from app.jobs.queue import enqueue
 from app.media.keep import keep_media, wants
@@ -55,6 +56,7 @@ class AlertOut(BaseModel):
     created_at: datetime
     edited_at: datetime | None  # the message was edited after the alert
     revoked_at: datetime | None  # the sender deleted it for everyone
+    media: MediaOut | None = None  # a kept copy of the message's media, when there is one
 
 
 class AlertDetail(AlertOut):
@@ -70,7 +72,7 @@ class AlertPage(BaseModel):
     page_size: int
 
 
-def _out(a: Alert, m: Message) -> AlertOut:
+def _out(a: Alert, m: Message, media: StoredMedia | None = None) -> AlertOut:
     return AlertOut(
         id=a.id,
         message_id=a.message_id,
@@ -89,7 +91,20 @@ def _out(a: Alert, m: Message) -> AlertOut:
         revoked_at=m.revoked_at,
         notified_at=a.notified_at,
         created_at=a.created_at,
+        media=media_out(media) if media is not None and not m.redacted else None,
     )
+
+
+async def _media_by_message(db: AsyncSession, message_ids: list[int]) -> dict[int, StoredMedia]:
+    """The shown copy for each message (one query for a whole page of alerts)."""
+    if not message_ids:
+        return {}
+    rows = await db.execute(
+        select(StoredMedia)
+        .where(StoredMedia.message_id.in_(message_ids), StoredMedia.purge.is_(False))
+        .order_by(StoredMedia.id.desc())
+    )
+    return {r.message_id: r for r in rows.scalars()}
 
 
 @router.get("/alerts")
@@ -138,8 +153,12 @@ async def list_alerts(
             .offset((page - 1) * page_size)
         )
     ).all()
+    media = await _media_by_message(db, [m.id for _, m in rows])
     return AlertPage(
-        items=[_out(a, m) for a, m in rows], total=total, page=page, page_size=page_size
+        items=[_out(a, m, media.get(m.id)) for a, m in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
     )
 
 
@@ -167,7 +186,7 @@ async def get_alert(alert_id: int, db: DB) -> AlertDetail:
         )
     ).scalars()
     return AlertDetail(
-        **_out(a, m).model_dump(),
+        **_out(a, m, (await _media_by_message(db, [m.id])).get(m.id)).model_dump(),
         message_type=m.type,
         sent_at=m.sent_at,
         classifications=[ClassificationOut.model_validate(c, from_attributes=True) for c in cls],
@@ -183,7 +202,7 @@ async def patch_alert(alert_id: int, body: AlertPatch, db: DB) -> AlertOut:
     a, m = await _alert(db, alert_id)
     a.status = body.status
     await db.commit()
-    return _out(a, m)
+    return _out(a, m, (await _media_by_message(db, [m.id])).get(m.id))
 
 
 @router.post("/alerts/{alert_id}/resend")

@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import ColumnElement, and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.media import MediaOut, media_out
 from app.db.models import (
     Chat,
     Classification,
@@ -16,6 +17,7 @@ from app.db.models import (
     Message,
     MessageReceipt,
     MessageRevision,
+    StoredMedia,
 )
 from app.db.search import MARK_END, MARK_START, find_matches, search_tokens  # noqa: F401
 from app.deps import get_db
@@ -78,6 +80,7 @@ class RevisionOut(BaseModel):
 
 
 class MessageDetail(MessageOut):
+    media: MediaOut | None = None  # a kept copy of the message's media
     classifications: list[ClassificationOut]
     revisions: list[RevisionOut]  # earlier wordings, original first; empty when redacted
 
@@ -252,8 +255,21 @@ async def get_message(message_id: int, db: DB) -> MessageDetail:
                 )
             ).scalars()
         )
+    kept = (
+        None
+        if m.redacted
+        else (
+            await db.execute(
+                select(StoredMedia)
+                .where(StoredMedia.message_id == m.id, StoredMedia.purge.is_(False))
+                .order_by(StoredMedia.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    )
     return MessageDetail(
         **base.model_dump(),
+        media=media_out(kept) if kept is not None else None,
         classifications=[ClassificationOut.model_validate(c, from_attributes=True) for c in cls],
         revisions=[RevisionOut(text=r.text, replaced_at=r.replaced_at) for r in revisions],
     )

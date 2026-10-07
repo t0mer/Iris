@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts.service import delivery_configured
-from app.db.models import Alert, Chat, ChatInstance, Instance, Job, Message
+from app.db.models import Alert, Chat, ChatInstance, Instance, Job, Message, StoredMedia
 from app.deps import get_db
 from app.security.auth import current_user
 from app.settings_store import get_setting
@@ -32,6 +32,9 @@ class Stats(BaseModel):
     delivery_configured: bool
     instances: int
     silent_instances: int  # enabled but never received a webhook
+    media_policy: str  # off | harmful | harmful_review | all
+    media_files: int  # kept media that can be shown
+    media_bytes: int
 
 
 async def _count(db: AsyncSession, stmt) -> int:  # type: ignore[no-untyped-def]
@@ -81,6 +84,16 @@ async def stats(db: DB) -> Stats:
             select(func.count())
             .select_from(Instance)
             .where(Instance.enabled.is_(True), Instance.last_webhook_at.is_(None)),
+        ),
+        media_policy=str(await get_setting(db, "media.policy")),
+        media_files=await _count(
+            db, select(func.count()).select_from(StoredMedia).where(StoredMedia.purge.is_(False))
+        ),
+        media_bytes=await _count(
+            db,
+            select(func.coalesce(func.sum(StoredMedia.size_bytes), 0)).where(
+                StoredMedia.purge.is_(False)
+            ),
         ),
     )
 

@@ -12,7 +12,18 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from loguru import logger
 
-from app.api import alerts, auth, classify, database, instances, jobs, messages, stats, system
+from app.api import (
+    alerts,
+    auth,
+    classify,
+    database,
+    instances,
+    jobs,
+    media,
+    messages,
+    stats,
+    system,
+)
 from app.api import settings as settings_api
 from app.config import get_settings
 from app.db.engine import make_engine, make_session_factory
@@ -108,9 +119,10 @@ def create_app() -> FastAPI:
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
         response = await call_next(request)
-        response.headers["Content-Security-Policy"] = (
-            _DOCS_CSP if request.url.path == "/api/docs" else _CSP
-        )
+        if "Content-Security-Policy" not in response.headers:  # kept media sets a stricter one
+            response.headers["Content-Security-Policy"] = (
+                _DOCS_CSP if request.url.path == "/api/docs" else _CSP
+            )
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Frame-Options"] = "DENY"
@@ -126,6 +138,7 @@ def create_app() -> FastAPI:
     app.include_router(settings_api.router)
     app.include_router(classify.router)
     app.include_router(database.router)
+    app.include_router(media.router)
     app.include_router(webhooks.router)
 
     @app.get("/metrics", include_in_schema=False)
