@@ -58,7 +58,7 @@ container (amd64 and arm64), and uses free or low-cost models wherever possible.
   system, and the whole portal passes an automated accessibility scan (keyboard, contrast, screen readers).
 - **Sexual content safety rule.** Content involving minors, or sexual imagery, is withheld entirely: it is
   not stored, not searchable, not shown and not forwarded. The alert says to review the chat directly.
-- **Keep the media if you want to (off by default).** Store the photo, voice note or video behind an alert on
+- **Keep the media if you want to (off by default).** Store the photo or voice note behind an alert on
   the server's disk or in S3-compatible storage (Cloudflare R2, AWS S3, SeaweedFS, MinIO); the alert and the
   dashboard link to it.
 - **Self-hosted and private.** Secrets are encrypted at rest, logs never contain message text, media is
@@ -226,13 +226,15 @@ Notes:
 
 ### Keeping media
 
-By default Iris deletes every photo, voice note and video as soon as it has been checked. Under **Settings >
+By default Iris deletes every photo and voice note as soon as it has been checked. Under **Settings >
 Media** you can turn on keeping copies, so you can look at what triggered an alert.
 
 ![Media settings](assets/screenshots/settings-media.png)
 
 - **What to keep:** only what Iris judges **harmful**; **harmful and needs a look** (the review queue too); or
   **everything**. The decision is made after the check, so a "harmful only" setting never stores the rest.
+  **Videos are not kept at all**: Iris checks what a video says, not what it shows, so it cannot promise that
+  a sexual video would be withheld.
 - **Where:** **this server's disk** (the `media` folder inside the data folder, so in Docker the data volume) or
   **S3-compatible storage**. Create the bucket first, then enter the endpoint, bucket, access key and secret
   key and press **Test storage**: Iris writes, reads back and deletes a tiny file.
@@ -249,7 +251,7 @@ Media** you can turn on keeping copies, so you can look at what triggered an ale
   message and its alert stay until their own limits under Retention. If the storage is unreachable, Iris keeps
   trying until the file is gone.
 - **Where you see it:** the WhatsApp alert gets a line such as `📎 Media kept (image, 1.2 MB): https://…/media/12`;
-  the alert page shows the photo, plays the voice note or video; the alert list and the dashboard mark alerts
+  the alert page shows the photo or plays the voice note; the alert list and the dashboard mark alerts
   that have media and the dashboard shows how many files and how much space they use.
 
   ![A kept photo on its alert](assets/screenshots/media-alert-detail.png)
@@ -263,15 +265,19 @@ Media** you can turn on keeping copies, so you can look at what triggered an ale
 How it stays safe:
 
 - **Withheld content is never kept.** Media of a message withheld by the safety rule (anything sexual involving
-  minors, or sexual images, stickers and videos) is not stored whatever you choose, and if a later check
-  withholds a message, its kept copy is deleted.
+  minors, or sexual images and stickers) is not stored whatever you choose, and if a later check withholds a
+  message, its kept copy is deleted. Media Iris could not check (a failed conversion or transcription) is not
+  kept either.
 - **Only after you sign in.** The link in the alert opens an Iris page that needs your login (it lasts 7 days
   on a phone). Iris streams the file itself, with a strict content type, so it is never served straight from the
   bucket and nothing in the WhatsApp text can open it on its own. Keep the bucket private.
-- **Only real photos, audio and video** are kept, recognised by their bytes. Documents are not downloaded.
+- **Only real photos and audio** are kept, recognised by their bytes and matched to the message type. Documents
+  and videos are not kept.
 - A storage problem never blocks checking or alerting: the alert simply goes out without the link.
 - Copying your data to another database does not move the files: they stay in the data folder or the bucket and
   keep working.
+- Each file remembers which storage it was written to, so changing the bucket later does not strand old files;
+  **Delete all kept media** (Settings > Media) removes everything, also after you turned keeping off.
 
 ### Settings (in the portal)
 

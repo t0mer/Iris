@@ -715,11 +715,7 @@ export function Settings() {
                         'Harmful and needs a look',
                         'Also the items waiting in the review queue.',
                       ],
-                      [
-                        'all',
-                        'Everything',
-                        'Every photo, voice note and video. Uses the most space.',
-                      ],
+                      ['all', 'Everything', 'Every photo and voice note. Uses the most space.'],
                     ] as const
                   ).map(([value, label, hint]) => (
                     <label key={value} className="flex items-start gap-3 text-sm">
