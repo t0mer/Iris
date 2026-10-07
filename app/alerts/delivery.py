@@ -7,9 +7,10 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 from sqlalchemy import Select, func, select
 
-from app.alerts.format import AlertFacts, format_alert, format_change_notice
-from app.db.models import Alert, Chat, Instance, Message
+from app.alerts.format import AlertFacts, MediaFact, format_alert, format_change_notice
+from app.db.models import Alert, Chat, Instance, Message, StoredMedia
 from app.jobs.queue import ClaimedJob, PermanentError, TransientError
+from app.media.records import stored_for
 from app.metrics import ALERTS
 from app.openwa.client import OpenWAClient, OpenWAError
 from app.security.crypto import decrypt
@@ -43,7 +44,11 @@ def _chat_alerts(chat_id: int, alert_id: int) -> "Select[Any]":
 
 
 def build_facts(
-    alert: Alert, message: Message, chat: Chat | None, more_suppressed: int = 0
+    alert: Alert,
+    message: Message,
+    chat: Chat | None,
+    more_suppressed: int = 0,
+    media: StoredMedia | None = None,
 ) -> AlertFacts:
     return AlertFacts(
         alert_id=alert.id,
@@ -57,6 +62,11 @@ def build_facts(
         sent_at=message.sent_at,
         quote=alert.quote,
         more_suppressed=more_suppressed,
+        media=(
+            MediaFact(media.id, media.kind, media.size_bytes)
+            if media is not None and not message.redacted
+            else None
+        ),
     )
 
 
@@ -129,7 +139,9 @@ async def _deliver(job: ClaimedJob, deps: "Deps") -> None:
             )
 
         timezone = str(await get_setting(db, "alerts.timezone"))
-        facts = build_facts(alert, message, chat, more_suppressed=more)
+        facts = build_facts(
+            alert, message, chat, more_suppressed=more, media=await stored_for(db, message.id)
+        )
         text = format_alert(facts, timezone, deps.public_base_url, deps.key_bytes)
         client = OpenWAClient(
             sender.openwa_base_url, decrypt(deps.key_bytes, sender.openwa_api_key_enc)

@@ -60,6 +60,21 @@ def make_quote(message_type: str, text: str | None, transcript: str | None) -> s
 
 
 @dataclass(frozen=True)
+class MediaFact:
+    media_id: int
+    kind: str  # image | audio | video
+    size_bytes: int
+
+
+def human_size(n: int) -> str:
+    if n < 1024:
+        return f"{n} B"
+    if n < 1024 * 1024:
+        return f"{n / 1024:.0f} KB"
+    return f"{n / (1024 * 1024):.1f} MB"
+
+
+@dataclass(frozen=True)
 class AlertFacts:
     alert_id: int
     kid_names: list[str]
@@ -72,6 +87,7 @@ class AlertFacts:
     sent_at: datetime
     quote: str | None  # None when redacted
     more_suppressed: int = 0
+    media: "MediaFact | None" = None  # a kept copy of the media (never set for a redacted alert)
 
 
 def format_alert(f: AlertFacts, timezone: str, base_url: str, key: bytes) -> str:
@@ -92,6 +108,14 @@ def format_alert(f: AlertFacts, timezone: str, base_url: str, key: bytes) -> str
         "",
         WITHHELD if f.quote is None else f'"{f.quote}"',
     ]
+    if f.media is not None and f.quote is not None:
+        # In the body, before the signed link, so the signature covers it. It opens a portal page
+        # that needs a login; the file itself is never reachable from this text alone.
+        lines += [
+            "",
+            f"📎 Media kept ({f.media.kind}, {human_size(f.media.size_bytes)}): "
+            f"{base_url}/media/{f.media.media_id}",
+        ]
     if f.more_suppressed:
         lines += ["", f"+{f.more_suppressed} more alerts in this chat since last notification"]
     return with_signed_link("\n".join(lines), base_url, key, f.alert_id)
