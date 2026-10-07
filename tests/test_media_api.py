@@ -129,3 +129,45 @@ async def test_stats_count_what_is_kept(app_client: Any) -> None:
     await _keep_one(app_client)
     s = (await app_client.get("/api/stats")).json()
     assert (s["media_policy"], s["media_files"], s["media_bytes"]) == ("all", 1, len(ORIGINAL))
+
+
+@respx.mock
+async def test_the_whatsapp_alert_carries_the_media_link(app_client: Any) -> None:
+    import json
+
+    import httpx
+
+    from tests.test_alerts import SEND_URL
+    from tests.test_alerts import setup as alert_setup
+
+    deps, token, _ = await alert_setup(app_client)
+    await policy(app_client, "harmful")
+    serve("image.png", "image/png")
+    moderate(violence=0.9)
+    send = respx.post(SEND_URL).mock(return_value=httpx.Response(201, json={}))
+    await post(app_client, token, fx("image_nocaption_received"))
+    await run_all(deps)
+    (row,) = await rows(app_client)
+    text = json.loads(send.calls.last.request.content)["text"]
+    assert f"/media/{row.id}" in text and "📎 Media kept (image," in text
+    assert text.index("📎") < text.index("Open:")
+
+
+@respx.mock
+async def test_a_withheld_message_alert_has_no_media_line(app_client: Any) -> None:
+    import json
+
+    import httpx
+
+    from tests.test_alerts import SEND_URL
+    from tests.test_alerts import setup as alert_setup
+
+    deps, token, _ = await alert_setup(app_client)
+    await policy(app_client, "all")
+    serve("image.png", "image/png")
+    moderate(**{"sexual/minors": 0.9})
+    send = respx.post(SEND_URL).mock(return_value=httpx.Response(201, json={}))
+    await post(app_client, token, fx("image_nocaption_received"))
+    await run_all(deps)
+    text = json.loads(send.calls.last.request.content)["text"]
+    assert "Media kept" not in text and "withheld" in text

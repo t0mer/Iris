@@ -118,3 +118,39 @@ def test_test_message_signature_is_valid_only_for_its_own_text() -> None:
     link_line = test_msg.split("\n\nOpen: ")[1]
     reused = f"{ALERT_PREFIX} (test)\nsomething harmful\n\nOpen: {link_line}"
     assert not is_own_alert(reused, KEY)
+
+
+# --- kept media -------------------------------------------------------------------------------
+
+
+def test_a_kept_file_adds_a_portal_link_before_the_signed_link() -> None:
+    from app.alerts.format import MediaFact
+
+    t = text(media=MediaFact(media_id=12, kind="image", size_bytes=1_300_000))
+    assert f"📎 Media kept (image, 1.2 MB): {BASE}/media/12" in t
+    body = body_of(t)
+    assert body.index("📎 Media kept") > body.index('"I will find you"')  # after the quote
+    assert t.endswith(f"?s={t.rsplit('?s=', 1)[1]}") and t.index("Open:") > t.index("📎")
+    assert is_own_alert(t, KEY)  # the loop guard still recognises Iris's own text
+
+
+def test_the_media_line_is_covered_by_the_signature() -> None:
+    from app.alerts.format import MediaFact
+
+    t = text(media=MediaFact(media_id=12, kind="audio", size_bytes=900))
+    forged = t.replace("/media/12", "/media/13")
+    assert is_own_alert(t, KEY) and not is_own_alert(forged, KEY)
+    assert "(audio, 900 B)" in t
+
+
+def test_a_withheld_alert_never_links_media() -> None:
+    from app.alerts.format import MediaFact
+
+    t = text(quote=None, media=MediaFact(media_id=12, kind="image", size_bytes=10))
+    assert "Media kept" not in t and WITHHELD in t
+
+
+def test_human_sizes() -> None:
+    from app.alerts.format import human_size
+
+    assert [human_size(n) for n in (5, 2048, 5 * 1024 * 1024)] == ["5 B", "2 KB", "5.0 MB"]
