@@ -178,3 +178,99 @@ async def test_thresholds_endpoint_shows_effective_values_and_defaults(app_clien
     assert (rows["violence"]["low"], rows["violence"]["high"]) == (0.4, 0.9)
     assert (rows["violence"]["default_low"], rows["violence"]["default_high"]) == (0.2, 0.7)
     assert rows["hate"]["low"] == rows["hate"]["default_low"]
+
+
+# --- media storage settings -------------------------------------------------------------------
+
+
+async def test_media_defaults_are_off_and_local(app_client: Any) -> None:
+    s = (await app_client.get("/api/settings")).json()
+    assert s["media.policy"] == "off" and s["media.backend"] == "local"
+    assert s["media.retention_days"] == 30 and s["media.s3_region"] == "auto"
+    assert s["media.s3_path_style"] is True and s["media.s3_secret_key"] == {"set": False}
+
+
+async def test_media_settings_are_validated(app_client: Any) -> None:
+    bad = {
+        "media.policy": "everything",
+        "media.backend": "ftp",
+        "media.s3_endpoint": "http://169.254.169.254",
+        "media.s3_bucket": "Bad Bucket!",
+        "media.s3_prefix": "../escape/",
+        "media.retention_days": 0,
+    }
+    r = await app_client.put("/api/settings", json={"settings": bad})
+    assert r.status_code == 422 and set(r.json()["detail"]) == set(bad)
+
+
+async def test_media_settings_save_and_the_secret_stays_write_only(app_client: Any) -> None:
+    good = {
+        "media.policy": "harmful_review",
+        "media.backend": "s3",
+        "media.s3_endpoint": "https://acct.r2.cloudflarestorage.com/",
+        "media.s3_bucket": "iris-media",
+        "media.s3_access_key": "AKIA123",
+        "media.s3_secret_key": "very-secret-value",
+        "media.s3_prefix": "family/iris",
+    }
+    r = await app_client.put("/api/settings", json={"settings": good})
+    s = r.json()
+    assert r.status_code == 200 and s["media.policy"] == "harmful_review"
+    assert s["media.s3_prefix"] == "family/iris/" and s["media.s3_secret_key"] == {"set": True}
+    assert "very-secret-value" not in (await app_client.get("/api/settings")).text
+
+
+async def test_testing_the_local_folder(app_client: Any) -> None:
+    r = await app_client.post("/api/settings/test/media", json={"media": {"backend": "local"}})
+    assert r.json()["ok"] is True
+    assert (get_settings().data_dir / "media").is_dir()
+
+
+async def test_testing_s3_needs_all_the_fields_and_never_echoes_secrets(app_client: Any) -> None:
+    r = await app_client.post("/api/settings/test/media", json={"media": {"backend": "s3"}})
+    assert r.json() == {
+        "ok": False,
+        "detail": "Enter the endpoint, bucket, access key and secret key.",
+    }
+    r = await app_client.post(
+        "/api/settings/test/media",
+        json={
+            "media": {
+                "backend": "s3",
+                "endpoint": "http://169.254.169.254",
+                "bucket": "iris-media",
+                "access_key": "k",
+                "secret_key": "typed-secret",
+            }
+        },
+    )
+    assert r.json()["ok"] is False and "typed-secret" not in r.text
+    assert "not allowed" in r.json()["detail"]
+
+
+async def test_testing_s3_uses_typed_values_and_falls_back_to_the_saved_secret(
+    app_client: Any, monkeypatch: Any
+) -> None:
+    from app.media import s3
+
+    seen: list[Any] = []
+
+    async def probe(self: Any) -> None:
+        seen.append(self.cfg)
+
+    monkeypatch.setattr(s3.S3Store, "probe", probe)
+    await app_client.put(
+        "/api/settings", json={"settings": {"media.s3_secret_key": "saved-secret"}}
+    )
+    body = {
+        "media": {
+            "backend": "s3",
+            "endpoint": "http://seaweed.lan:8333",
+            "bucket": "iris-media",
+            "access_key": "typed-key",
+        }
+    }
+    r = await app_client.post("/api/settings/test/media", json=body)
+    assert r.json()["ok"] is True
+    assert seen[0].secret_key == "saved-secret" and seen[0].access_key == "typed-key"
+    assert seen[0].endpoint == "http://seaweed.lan:8333"
