@@ -58,8 +58,11 @@ container (amd64 and arm64), and uses free or low-cost models wherever possible.
   system, and the whole portal passes an automated accessibility scan (keyboard, contrast, screen readers).
 - **Sexual content safety rule.** Content involving minors, or sexual imagery, is withheld entirely: it is
   not stored, not searchable, not shown and not forwarded. The alert says to review the chat directly.
+- **Keep the media if you want to (off by default).** Store the photo, voice note or video behind an alert on
+  the server's disk or in S3-compatible storage (Cloudflare R2, AWS S3, SeaweedFS, MinIO); the alert and the
+  dashboard link to it.
 - **Self-hosted and private.** Secrets are encrypted at rest, logs never contain message text, media is
-  deleted after processing, and old data is removed automatically.
+  deleted after processing unless you turn on keeping it, and old data is removed automatically.
 - Prometheus metrics, a REST API with interactive docs, and a multi-arch image.
 
 ## How it works
@@ -178,7 +181,7 @@ have. Use the switch to pause watching a phone without removing it.
 | `IRIS_PUBLIC_BASE_URL` | yes | | Externally reachable base URL, used to build webhook URLs and alert links. |
 | `IRIS_ADMIN_USERNAME` | first run | | Initial admin user. |
 | `IRIS_ADMIN_PASSWORD` | first run | | Initial admin password (stored hashed with argon2; ignored afterwards). |
-| `IRIS_DATA_DIR` | no | `/data` | SQLite database (unless another database is chosen), the saved database choice and temporary media. |
+| `IRIS_DATA_DIR` | no | `/data` | SQLite database (unless another database is chosen), the saved database choice, temporary media and, if you keep media on this server, the `media` folder. |
 | `IRIS_DATABASE_URL` | no | | `postgresql://user:password@host:5432/db` or `mysql://user:password@host:3306/db` (or `sqlite:///path`). Overrides the choice made in Settings, which then becomes read only. Add `?ssl=true` for TLS. |
 | `IRIS_PORT` | no | `8080` | Listening port. |
 | `IRIS_WORKERS` | no | `3` | Concurrent job workers. |
@@ -221,6 +224,55 @@ Notes:
 
 ![Database settings in dark mode](assets/screenshots/database-postgres-dark.png)
 
+### Keeping media
+
+By default Iris deletes every photo, voice note and video as soon as it has been checked. Under **Settings >
+Media** you can turn on keeping copies, so you can look at what triggered an alert.
+
+![Media settings](assets/screenshots/settings-media.png)
+
+- **What to keep:** only what Iris judges **harmful**; **harmful and needs a look** (the review queue too); or
+  **everything**. The decision is made after the check, so a "harmful only" setting never stores the rest.
+- **Where:** **this server's disk** (the `media` folder inside the data folder, so in Docker the data volume) or
+  **S3-compatible storage**. Create the bucket first, then enter the endpoint, bucket, access key and secret
+  key and press **Test storage**: Iris writes, reads back and deletes a tiny file.
+
+  | Service | Endpoint | Region | Notes |
+  |---|---|---|---|
+  | Cloudflare R2 | `https://<account id>.r2.cloudflarestorage.com` | `auto` | Create an R2 API token with object read and write for the bucket. |
+  | AWS S3 | `https://s3.<region>.amazonaws.com` | the bucket's region, e.g. `eu-west-1` | Turn **path-style addresses** off if your bucket needs `bucket.host` addresses. |
+  | SeaweedFS | `http://<host>:8333` | any, e.g. `us-east-1` | Start the S3 gateway with an identity that has the access key and secret. |
+  | MinIO | `http://<host>:9000` | any, e.g. `us-east-1` | |
+
+  ![Media settings with S3-compatible storage](assets/screenshots/settings-media-s3.png)
+- **How long:** media has its own limit, **30 days** by default. Older files are deleted from the storage; the
+  message and its alert stay until their own limits under Retention. If the storage is unreachable, Iris keeps
+  trying until the file is gone.
+- **Where you see it:** the WhatsApp alert gets a line such as `📎 Media kept (image, 1.2 MB): https://…/media/12`;
+  the alert page shows the photo, plays the voice note or video; the alert list and the dashboard mark alerts
+  that have media and the dashboard shows how many files and how much space they use.
+
+  ![A kept photo on its alert](assets/screenshots/media-alert-detail.png)
+
+  ![Dashboard with kept media](assets/screenshots/media-dashboard.png)
+
+  | Alerts with kept media | The media page |
+  |---|---|
+  | ![Alert list](assets/screenshots/phone-media-alerts.png) | ![Media page](assets/screenshots/media-viewer.png) |
+
+How it stays safe:
+
+- **Withheld content is never kept.** Media of a message withheld by the safety rule (anything sexual involving
+  minors, or sexual images, stickers and videos) is not stored whatever you choose, and if a later check
+  withholds a message, its kept copy is deleted.
+- **Only after you sign in.** The link in the alert opens an Iris page that needs your login (it lasts 7 days
+  on a phone). Iris streams the file itself, with a strict content type, so it is never served straight from the
+  bucket and nothing in the WhatsApp text can open it on its own. Keep the bucket private.
+- **Only real photos, audio and video** are kept, recognised by their bytes. Documents are not downloaded.
+- A storage problem never blocks checking or alerting: the alert simply goes out without the link.
+- Copying your data to another database does not move the files: they stay in the data folder or the bucket and
+  keep working.
+
 ### Settings (in the portal)
 
 Everything else is edited under **Settings** and stored in the database. Secrets are write-only: the API and
@@ -240,6 +292,7 @@ UI only ever say whether one is set.
 | Alerts | Tell me when an alerted message is edited or deleted | on |
 | Scope | Monitor messages sent by the kid, direct chats, groups | all on |
 | Retention | Keep messages / alerts | 90 / 365 days |
+| Media | Keep media: off, harmful, harmful and needs a look, everything; where; how long | off, this server's disk, 30 days |
 
 Switching the transcription provider takes effect immediately, with no restart.
 
@@ -416,7 +469,8 @@ except `/api/auth/login`, `/api/health` and `/api/version`. Interactive OpenAPI 
 | POST | `/api/instances/{id}/rotate-token`, `/register-webhook` | Rotate the webhook token; register it in OpenWA |
 | GET, PUT | `/api/settings` | Read and write settings (thresholds are the key `classification.thresholds`) |
 | GET | `/api/settings/thresholds` | Effective per-category thresholds next to their defaults (read-only) |
-| POST | `/api/settings/test/{openai\|cloudflare\|alert}` | Test a provider with the values entered |
+| POST | `/api/settings/test/{openai\|cloudflare\|alert\|media}` | Test a provider with the values entered |
+| GET | `/api/media/{id}`, `/api/media/{id}/info` | A kept file (streamed by Iris, byte ranges supported, never from the bucket) and what it belongs to; 404 once it is deleted or withheld |
 | POST | `/api/classify/test` | Score typed `text` (max 4000 chars) with optional earlier `context` lines (max 20); nothing is stored; 30 per 5 minutes |
 | GET, PUT, DELETE | `/api/database` | Which database runs and which is saved for the next start (never the password); save a choice (409 when `IRIS_DATABASE_URL` is set); go back to SQLite |
 | POST | `/api/database/test` | Try a connection with the values entered (10 per 5 minutes) |
@@ -449,9 +503,11 @@ outside, so set `IRIS_METRICS_TOKEN` or restrict `/metrics` in your reverse prox
   a 32-byte random, rotatable token and, once registered through Iris, an HMAC signature.
 - **Secrets are encrypted at rest** (AES-256-GCM) and never returned by the API.
 - **Logs contain only IDs, types, categories, scores and timings**, never message text, transcripts or media.
-- **Media is never kept.** It is downloaded to a per-job temporary directory and deleted afterwards, also on
-  failure and on shutdown; leftovers from a crash are swept at start-up. Only media with a recognised audio,
-  video or image signature is passed to ffmpeg.
+- **Media is not kept unless you turn it on** (Settings > Media). It is downloaded to a per-job temporary
+  directory and deleted afterwards, also on failure and on shutdown; leftovers from a crash are swept at
+  start-up. Only media with a recognised audio, video or image signature is passed to ffmpeg. If you do keep
+  media, see [Keeping media](#keeping-media): withheld content is never kept, files are served only to a
+  signed-in owner, and they expire on their own schedule.
 - **Sexual content is withheld.** If a message involves minors (from the *low* threshold up), or is a
   sexual image, sticker or video, Iris clears its text and transcript, removes it from the search index,
   never quotes it in an alert, and refuses to reprocess it.
@@ -465,6 +521,11 @@ outside, so set `IRIS_METRICS_TOKEN` or restrict `/metrics` in your reverse prox
   `https://`.
 
 ## Troubleshooting
+
+**Test storage fails, or alerts go out without a media link.** Run **Test storage** under Settings > Media: it
+says whether the endpoint cannot be reached, the keys are refused, or the bucket does not exist. A failed
+upload never blocks checking or alerting; the media is simply not kept. For R2 make sure the token can write to
+the bucket, and for AWS check the region and the path-style switch.
 
 **Test connection says "Could not reach the server".** Check the host and port from where Iris runs (in Docker,
 `localhost` is the container itself: use the server's address or its compose service name) and any firewall.
