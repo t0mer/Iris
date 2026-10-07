@@ -23,11 +23,15 @@ from app.api.messages import (
     _load,
     _to_out,
 )
+from app.config import Settings, get_settings
 from app.db.jsonq import json_array_contains
 from app.db.models import Alert, Classification, Message, MessageReceipt
 from app.deps import get_db
 from app.jobs.queue import enqueue
+from app.media.keep import keep_media, wants
+from app.media.records import mark_purge
 from app.security.auth import current_user
+from app.settings_store import get_setting
 
 router = APIRouter(prefix="/api", tags=["alerts"], dependencies=[Depends(current_user)])
 DB = Annotated[AsyncSession, Depends(get_db)]
@@ -277,15 +281,27 @@ class ReviewResolution(BaseModel):
 
 
 @router.post("/review/{message_id}")
-async def resolve_review(message_id: int, body: ReviewResolution, db: DB) -> dict[str, Any]:
+async def resolve_review(
+    message_id: int,
+    body: ReviewResolution,
+    db: DB,
+    cfg: Annotated[Settings, Depends(get_settings)],
+) -> dict[str, Any]:
     m, _ = await _load(db, message_id)
     if m.verdict != "review":
         raise HTTPException(status_code=409, detail="Message is not awaiting review")
     m.verdict = body.resolution
     alert_id: int | None = None
+    policy = str(await get_setting(db, "media.policy"))
     if body.resolution == "harmful":
-        alert = await create_alert(db, m, await scores_from_classifications(db, m))
+        scores = await scores_from_classifications(db, m)
+        await db.commit()
+        # Before the alert is built, so its text carries the link (best effort, never fails).
+        await keep_media(db, m, list(scores), cfg.key_bytes, cfg.data_dir, f"review-{m.id}")
+        alert = await create_alert(db, m, scores)
         alert_id = alert.id
     else:
+        if not wants(policy, "safe"):
+            await mark_purge(db, m.id)  # kept only because it was awaiting review
         await db.commit()
     return {"ok": True, "verdict": body.resolution, "alert_id": alert_id}

@@ -12,6 +12,7 @@ from app.chats import resolve_group_names
 from app.jobs import queue
 from app.jobs.handlers import Deps, process_message
 from app.jobs.queue import ClaimedJob, PermanentError, TransientError
+from app.media.sweep import sweep_media
 
 Handler = Callable[[ClaimedJob, Deps], Awaitable[None]]
 HANDLERS: dict[str, Handler] = {
@@ -97,6 +98,12 @@ class WorkerPool:
                 await resolve_group_names(self._deps.session_factory, self._deps.key_bytes)
             except Exception:
                 logger.exception("group name lookup failed")
+            try:
+                await sweep_media(
+                    self._deps.session_factory, self._deps.key_bytes, self._deps.data_dir
+                )
+            except Exception:
+                logger.exception("media cleanup failed")
 
     async def _loop(self, n: int) -> None:
         while True:

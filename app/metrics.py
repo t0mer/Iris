@@ -43,6 +43,12 @@ ALERTS = Counter(
     ["category", "delivery_status"],
     registry=REGISTRY,
 )
+MEDIA_STORED = Counter(
+    "iris_media_stored_total",
+    "Kept media files by backend and result (stored, skipped, failed)",
+    ["backend", "result"],
+    registry=REGISTRY,
+)
 JOBS = Gauge("iris_jobs", "Jobs by status", ["status"], registry=REGISTRY)
 
 _JOB_STATUSES = ("queued", "running", "done", "failed", "dead")

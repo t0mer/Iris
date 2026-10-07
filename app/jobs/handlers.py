@@ -6,7 +6,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
 
 from loguru import logger
 from sqlalchemy import delete, select
@@ -23,14 +22,14 @@ from app.chats import resolve_group_names
 from app.classify.pipeline import PipelineOutcome, run_pipeline
 from app.classify.stages import StageContext
 from app.classify.thresholds import effective_thresholds
-from app.db.models import Chat, Classification, Instance, Job, Message
+from app.db.models import Chat, Classification, Job, Message
 from app.jobs.queue import ClaimedJob, PermanentError, TransientError
 from app.media import ffmpeg
-from app.media.fetch import MAX_AUDIO_SECONDS, MediaSkipped, download, job_tmpdir
+from app.media.fetch import MAX_AUDIO_SECONDS, MediaSkipped, fetch_original, job_tmpdir
+from app.media.keep import keep_media
+from app.media.records import mark_purge
 from app.metrics import MESSAGES, STAGE_SECONDS, TRANSCRIBED_AUDIO_SECONDS
-from app.openwa.client import OpenWAClient
 from app.providers import Providers
-from app.security.crypto import decrypt
 from app.settings_store import get_secret, get_setting
 from app.transcription.factory import build_transcriber
 
@@ -58,30 +57,8 @@ class Skip(Exception):
     """Nothing (more) to classify for this message; the reason is logged, never the content."""
 
 
-def _media_ref(message: Message) -> dict[str, Any]:
-    media = message.media
-    if not isinstance(media, dict) or not media.get("message_ref"):
-        raise PermanentError("message has no media reference")
-    return media
-
-
-async def _openwa_for(
-    db: AsyncSession, media: dict[str, Any], key_bytes: bytes
-) -> tuple[OpenWAClient, str]:
-    instance = await db.get(Instance, media.get("instance_id"))
-    if instance is None or not instance.openwa_api_key_enc:
-        raise PermanentError("instance or its OpenWA API key is missing")
-    client = OpenWAClient(instance.openwa_base_url, decrypt(key_bytes, instance.openwa_api_key_enc))
-    return client, instance.openwa_instance_id
-
-
-async def _fetch(db: AsyncSession, message: Message, deps: Deps, dest: Path) -> None:
-    media = _media_ref(message)
-    client, session_id = await _openwa_for(db, media, deps.key_bytes)
-    try:
-        await download(client, session_id, media["chat_id"], media["message_ref"], dest)
-    finally:
-        await client.aclose()
+async def _fetch(db: AsyncSession, message: Message, deps: Deps, dest: Path) -> str:
+    return await fetch_original(db, message, deps.key_bytes, dest)
 
 
 async def _image_data_url(db: AsyncSession, message: Message, deps: Deps, tmp: Path) -> str:
@@ -263,6 +240,7 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
                 # with alerts off) must not sit in the DB, search index or portal unredacted.
                 redact_message(message)
                 await wipe_revisions(db, message.id)
+                await mark_purge(db, message.id)  # a kept copy of withheld media goes too
                 logger.warning(
                     "message {} redacted at classification; content withheld", message.id
                 )
@@ -277,6 +255,16 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             message.type,
             outcome.verdict,
             [r.stage for r in outcome.results],
+        )
+        # Before the alert is built, so its text can carry the link. Never fails the job.
+        final = outcome.results[-1] if outcome.results else None
+        await keep_media(
+            db,
+            message,
+            list(final.high_categories) + list(final.flagged_categories) if final else [],
+            deps.key_bytes,
+            deps.data_dir,
+            str(job.id),
         )
         hook = {"harmful": deps.on_harmful, "review": deps.on_review}.get(outcome.verdict)
         if hook is not None:

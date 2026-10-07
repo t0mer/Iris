@@ -18,6 +18,7 @@ from app.db.models import (
     MessageRevision,
 )
 from app.jobs.queue import enqueue
+from app.media.records import mark_purge
 from app.metrics import ALERTS
 from app.settings_store import get_setting
 
@@ -91,6 +92,7 @@ async def create_alert(db: AsyncSession, message: Message, scores: dict[str, flo
     if redact:
         redact_message(message)
         await wipe_revisions(db, message.id)
+        await mark_purge(db, message.id)
         quote = None
         logger.warning("message {} redacted ({}); content withheld", message.id, categories)
     else:
