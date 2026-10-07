@@ -1,10 +1,12 @@
 """/api/settings: flat key map; secrets are write-only."""
 
+import time
+from collections import deque
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts import ALERT_PREFIX
@@ -16,6 +18,8 @@ from app.config import Settings, get_settings
 from app.db.models import Instance
 from app.deps import get_db
 from app.jobs.queue import PermanentError, TransientError
+from app.media.factory import MediaOverrides, build_store
+from app.media.store import MediaStoreError
 from app.openwa.client import OpenWAClient, OpenWAError
 from app.security.auth import current_user
 from app.security.crypto import decrypt
@@ -94,6 +98,18 @@ class TestRequest(BaseModel):
     account_id: str | None = None
     api_token: str | None = None
     model: str | None = None
+    media: "MediaTest | None" = None
+
+
+class MediaTest(BaseModel):
+    backend: Literal["local", "s3"] | None = None
+    endpoint: str | None = Field(default=None, max_length=300)
+    bucket: str | None = Field(default=None, max_length=100)
+    region: str | None = Field(default=None, max_length=100)
+    access_key: str | None = Field(default=None, max_length=200)
+    secret_key: str | None = Field(default=None, max_length=300)
+    prefix: str | None = Field(default=None, max_length=200)
+    path_style: bool | None = None
 
 
 class TestResult(BaseModel):
@@ -103,7 +119,7 @@ class TestResult(BaseModel):
 
 @router.post("/test/{target}")
 async def test_provider(
-    target: Literal["openai", "cloudflare", "alert"],
+    target: Literal["openai", "cloudflare", "alert", "media"],
     db: Annotated[AsyncSession, Depends(get_db)],
     cfg: Annotated[Settings, Depends(get_settings)],
     body: TestRequest | None = None,
@@ -142,9 +158,37 @@ async def test_provider(
             finally:
                 await cf.aclose()
             return TestResult(ok=True, detail="Cloudflare Workers AI transcribed the test clip")
+        if target == "media":
+            return await _test_media(db, cfg, body)
         return await _test_alert(db, cfg, body)
     except (PermanentError, TransientError) as exc:
         return TestResult(ok=False, detail=str(exc))  # messages are static, never secrets
+
+
+_media_tests: deque[float] = deque()
+MEDIA_TESTS_PER_WINDOW, MEDIA_WINDOW_SECONDS = 10, 300
+
+
+async def _test_media(db: AsyncSession, cfg: Settings, body: TestRequest) -> TestResult:
+    """Write, read back and delete a tiny object in the entered (or saved) storage."""
+    now = time.monotonic()
+    while _media_tests and now - _media_tests[0] > MEDIA_WINDOW_SECONDS:
+        _media_tests.popleft()
+    if len(_media_tests) >= MEDIA_TESTS_PER_WINDOW:
+        return TestResult(ok=False, detail="Too many tests. Wait a few minutes and try again.")
+    _media_tests.append(now)
+    typed = body.media or MediaTest()
+    try:
+        store = await build_store(
+            db, cfg.key_bytes, cfg.data_dir, MediaOverrides(**typed.model_dump())
+        )
+        try:
+            await store.probe()
+        finally:
+            await store.aclose()
+    except MediaStoreError as exc:
+        return TestResult(ok=False, detail=str(exc))  # messages are static, never secrets
+    return TestResult(ok=True, detail="Storage works: a test file was written, read and deleted.")
 
 
 async def _test_alert(db: AsyncSession, cfg: Settings, body: TestRequest) -> TestResult:

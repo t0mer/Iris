@@ -3,6 +3,7 @@
 Secrets are AES-256-GCM encrypted at rest and never returned by the API (only `{"set": bool}`).
 """
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -12,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.classify.thresholds import validate_thresholds
 from app.db.models import Setting
+from app.media.s3 import validate_endpoint
 from app.security.crypto import decrypt, encrypt
 from app.transcription.cloudflare import validate_account_id, validate_model
 
@@ -90,6 +92,30 @@ def _choice(*options: str) -> Callable[[Any], str]:
     return check
 
 
+def _s3_endpoint(v: Any) -> str | None:
+    if v is None or v == "":
+        return None
+    return validate_endpoint(_str(v))
+
+
+def _bucket(v: Any) -> str | None:
+    if v is None or v == "":
+        return None
+    name = _str(v)
+    if not re.fullmatch(r"[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9]", name):
+        raise ValueError("use 3-63 lowercase letters, digits, dots or hyphens")
+    return name
+
+
+def _prefix(v: Any) -> str:
+    if v is None or v == "":
+        return ""
+    text = _str(v).lstrip("/")
+    if not re.fullmatch(r"[A-Za-z0-9._\-/]{1,200}", text) or ".." in text.split("/"):
+        raise ValueError("use letters, digits, dots, hyphens and slashes")
+    return text if text.endswith("/") else text + "/"
+
+
 REGISTRY: dict[str, Spec] = {
     "transcription.provider": Spec("openai", _choice("openai", "cloudflare")),
     "transcription.openai_model": Spec(
@@ -116,6 +142,16 @@ REGISTRY: dict[str, Spec] = {
     "alerts.alert_on_review": Spec(False, _bool),
     "alerts.notify_changes": Spec(True, _bool),
     "alerts.timezone": Spec("Asia/Jerusalem", _timezone),
+    "media.policy": Spec("off", _choice("off", "harmful", "harmful_review", "all")),
+    "media.backend": Spec("local", _choice("local", "s3")),
+    "media.s3_endpoint": Spec(None, _s3_endpoint),
+    "media.s3_bucket": Spec(None, _bucket),
+    "media.s3_region": Spec("auto", _str),
+    "media.s3_access_key": Spec(None, _opt_str),
+    "media.s3_secret_key": Spec(None, _opt_secret, secret=True),
+    "media.s3_prefix": Spec("iris/", _prefix),
+    "media.s3_path_style": Spec(True, _bool),
+    "media.retention_days": Spec(30, _int_range(1, 3650)),
 }
 
 
