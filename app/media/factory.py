@@ -1,10 +1,13 @@
 """Build the configured media store from the settings (and, for a test, the unsaved form)."""
 
+import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models import StoredMedia
 from app.media.s3 import S3Config, S3Store, validate_endpoint
 from app.media.store import LocalStore, MediaStore, MediaStoreError
 from app.settings_store import get_secret, get_setting
@@ -24,8 +27,22 @@ class MediaOverrides:
     path_style: bool | None = None
 
 
-async def media_policy(db: AsyncSession) -> str:
-    return str(await get_setting(db, "media.policy"))
+def overrides_for(row: StoredMedia) -> MediaOverrides:
+    """Where this file really lives (not where the settings point today)."""
+    if row.backend == "s3" and row.location:
+        try:
+            loc = json.loads(row.location)
+            return MediaOverrides(
+                backend="s3",
+                endpoint=loc["endpoint"],
+                bucket=loc["bucket"],
+                region=loc.get("region"),
+                prefix=loc.get("prefix", ""),
+                path_style=bool(loc.get("path_style", True)),
+            )
+        except (ValueError, KeyError):
+            pass
+    return MediaOverrides(backend=row.backend)
 
 
 async def build_store(
@@ -52,6 +69,8 @@ async def build_store(
         endpoint = validate_endpoint(endpoint)
     except ValueError as exc:
         raise MediaStoreError(str(exc)) from exc
+    if not re.fullmatch(r"[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9]", bucket):
+        raise MediaStoreError("The bucket name is not valid.")
     return S3Store(
         S3Config(
             endpoint=endpoint,

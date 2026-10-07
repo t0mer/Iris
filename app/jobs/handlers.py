@@ -256,15 +256,18 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             outcome.verdict,
             [r.stage for r in outcome.results],
         )
-        # Before the alert is built, so its text can carry the link. Never fails the job.
-        final = outcome.results[-1] if outcome.results else None
+        # Before the alert is built, so its text can carry the link. Never fails the job. Every
+        # stage's flags count (a flag cleared by the second look still means "do not keep").
         await keep_media(
-            db,
-            message,
-            list(final.high_categories) + list(final.flagged_categories) if final else [],
+            deps.session_factory,
+            message.id,
+            sorted(
+                {c for r in outcome.results for c in (*r.high_categories, *r.flagged_categories)}
+            ),
             deps.key_bytes,
             deps.data_dir,
             str(job.id),
+            examined=prepared.problem is None,
         )
         hook = {"harmful": deps.on_harmful, "review": deps.on_review}.get(outcome.verdict)
         if hook is not None:

@@ -22,6 +22,7 @@ class MediaStoreError(Exception):
 
 class MediaStore(Protocol):
     name: str
+    location: str  # where objects live, saved with each file ("" for the local folder)
 
     async def put(self, key: str, path: Path, content_type: str) -> None: ...
 
@@ -48,6 +49,7 @@ class LocalStore:
     """Files under one folder (owner-only permissions), written atomically."""
 
     name = "local"
+    location = ""
 
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -64,10 +66,13 @@ class LocalStore:
         def write() -> None:
             dest.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             tmp = dest.with_suffix(dest.suffix + ".part")
-            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, "wb") as out, path.open("rb") as src:
-                shutil.copyfileobj(src, out, CHUNK)
-            os.replace(tmp, dest)
+            try:
+                fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "wb") as out, path.open("rb") as src:
+                    shutil.copyfileobj(src, out, CHUNK)
+                os.replace(tmp, dest)
+            finally:
+                tmp.unlink(missing_ok=True)
 
         try:
             await asyncio.to_thread(write)

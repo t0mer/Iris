@@ -1,4 +1,5 @@
-import { Download, Film, Image as ImageIcon, Mic } from 'lucide-react'
+import { Download, FileX, Film, Image as ImageIcon, Mic } from 'lucide-react'
+import { useState } from 'react'
 import { fileSize } from '../lib/format'
 import type { KeptMedia } from '../lib/types'
 import { Badge } from './ui/badge'
@@ -20,6 +21,14 @@ export function MediaBadge({ media }: { media: KeptMedia }) {
 /** Shows kept media from Iris itself (the file is only served to a signed-in owner). */
 export function MediaPlayer({ media, className }: { media: KeptMedia; className?: string }) {
   const src = `/api/media/${media.id}`
+  const [failed, setFailed] = useState(false)
+  if (failed)
+    return (
+      <p role="alert" className="flex items-center gap-2 text-sm text-muted-foreground">
+        <FileX className="size-4" /> This file could not be loaded. It may have been deleted from
+        the storage.
+      </p>
+    )
   if (!media.inline)
     return (
       <Button asChild variant="outline" className="w-fit">
@@ -33,6 +42,7 @@ export function MediaPlayer({ media, className }: { media: KeptMedia; className?
       <img
         src={src}
         alt="The photo kept from this message"
+        onError={() => setFailed(true)}
         className={
           className ?? 'max-h-[70dvh] max-w-full rounded-lg border bg-surface-2 object-contain'
         }
@@ -41,7 +51,13 @@ export function MediaPlayer({ media, className }: { media: KeptMedia; className?
   if (media.kind === 'audio')
     return (
       // eslint-disable-next-line jsx-a11y/media-has-caption -- a voice note has no captions to offer
-      <audio controls preload="metadata" src={src} className="w-full max-w-md" />
+      <audio
+        controls
+        preload="metadata"
+        src={src}
+        className="w-full max-w-md"
+        onError={() => setFailed(true)}
+      />
     )
   return (
     // eslint-disable-next-line jsx-a11y/media-has-caption -- the transcript is on the message
@@ -50,6 +66,7 @@ export function MediaPlayer({ media, className }: { media: KeptMedia; className?
       playsInline
       preload="metadata"
       src={src}
+      onError={() => setFailed(true)}
       className={className ?? 'max-h-[70dvh] max-w-full rounded-lg border bg-black'}
     />
   )

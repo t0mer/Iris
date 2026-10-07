@@ -7,13 +7,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
 from app.db.models import Alert, Message, StoredMedia
 from app.deps import get_db
-from app.media.factory import MediaOverrides, build_store
+from app.media.factory import build_store, overrides_for
 from app.media.sniff import INLINE_TYPES
 from app.media.store import MediaStore, MediaStoreError
 from app.security.auth import current_user
@@ -62,6 +62,8 @@ def _parse_range(header: str | None, size: int) -> tuple[int, int] | None:
     """(start, end) inclusive for a single byte range, None for the whole file."""
     if not header:
         return None
+    if "," in header:
+        return None  # several ranges at once: a plain full answer is always allowed
     m = _RANGE.match(header.strip())
     if not m or (m.group(1) == "" and m.group(2) == ""):
         raise HTTPException(416, "Invalid range", headers={"Content-Range": f"bytes */{size}"})
@@ -98,20 +100,28 @@ async def media_file(
     row = await _visible(db, media_id)
     window = _parse_range(range_, row.size_bytes)
     try:
-        store: MediaStore = await build_store(
-            db, cfg.key_bytes, cfg.data_dir, MediaOverrides(backend=row.backend)
-        )
+        store: MediaStore = await build_store(db, cfg.key_bytes, cfg.data_dir, overrides_for(row))
     except MediaStoreError as exc:
         raise HTTPException(503, "The media storage is not available") from exc
 
     start, end = window if window else (0, row.size_bytes - 1)
+    chunks = store.open(row.key, start, end if window else None)
+    try:
+        # Read the first chunk now, so a missing or unreachable file is a proper error status
+        # instead of a 200 that stops short.
+        first: bytes | None = await anext(chunks, None)
+    except MediaStoreError as exc:
+        await store.aclose()
+        raise HTTPException(404, "The file is no longer in the storage") from exc
 
     async def body() -> AsyncIterator[bytes]:
         try:
-            async for chunk in store.open(row.key, start, end if window else None):
+            if first is not None:
+                yield first
+            async for chunk in chunks:
                 yield chunk
         except MediaStoreError:
-            return  # the connection just ends; the player shows its own error
+            return  # the connection ends; the player shows its own error
         finally:
             await store.aclose()
 
@@ -132,3 +142,11 @@ async def media_file(
     return StreamingResponse(
         body(), status_code=206 if window else 200, media_type=row.content_type, headers=headers
     )
+
+
+@router.delete("")
+async def delete_all_media(db: DB) -> dict[str, int]:
+    """Stop showing every kept file now; the sweeper deletes the objects within a minute."""
+    result = await db.execute(update(StoredMedia).values(purge=True))
+    await db.commit()
+    return {"scheduled": int(result.rowcount)}  # type: ignore[attr-defined]

@@ -65,3 +65,15 @@ test('a file that is gone says so instead of failing', async () => {
   )
   expect(await screen.findByText('This file is no longer kept')).toBeInTheDocument()
 })
+
+test('an address that is not a number is simply "no longer kept"', async () => {
+  const calls = renderWithApp(
+    <Routes>
+      <Route path="/media/:id" element={<MediaViewer />} />
+    </Routes>,
+    {},
+    '/media/abc',
+  )
+  expect(await screen.findByText('This file is no longer kept')).toBeInTheDocument()
+  expect(calls.length).toBe(0)
+})

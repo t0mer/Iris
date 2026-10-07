@@ -19,11 +19,14 @@ export function MediaViewer() {
   const info = useQuery({
     queryKey: ['media', id],
     queryFn: () => api<MediaInfo>(`/api/media/${id}/info`),
+    enabled: /^\d+$/.test(id ?? ''),
     retry: (count, e) => !(e instanceof ApiError && e.status === 404) && count < 2,
   })
   const m = info.data
+  const gone =
+    !/^\d+$/.test(id ?? '') || (info.error instanceof ApiError && info.error.status === 404)
 
-  if (info.error instanceof ApiError && info.error.status === 404)
+  if (gone)
     return (
       <div className="flex max-w-3xl flex-col gap-6">
         <PageHeader title="Kept media" />

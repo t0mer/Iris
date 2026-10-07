@@ -21,6 +21,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("message_id", sa.Integer(), nullable=False),
         sa.Column("backend", sa.String(255), nullable=False),
+        sa.Column("location", sa.String(1024), server_default="", nullable=False),
         sa.Column("key", sa.String(512), nullable=False),
         sa.Column("content_type", sa.String(255), nullable=False),
         sa.Column("kind", sa.String(255), nullable=False),
@@ -28,6 +29,7 @@ def upgrade() -> None:
         sa.Column("sha256", sa.String(64), nullable=False),
         sa.Column("created_at", UTCDateTime(), nullable=False),
         sa.Column("purge", sa.Boolean(), server_default=sa.false(), nullable=False),
+        sa.Column("purge_attempts", sa.Integer(), server_default="0", nullable=False),
         sa.UniqueConstraint("message_id", "sha256"),
     )
     op.create_index("ix_stored_media_message_id", "stored_media", ["message_id"])

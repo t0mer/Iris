@@ -10,6 +10,7 @@ import {
   KeyRound,
   Loader2,
   RotateCcw,
+  Trash2,
   XCircle,
   type LucideIcon,
 } from 'lucide-react'
@@ -25,7 +26,8 @@ import { Field, Input, Select } from '../components/ui/field'
 import { Switch } from '../components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { api, ApiError } from '../lib/api'
-import type { Instance, ThresholdRow } from '../lib/types'
+import { fileSize } from '../lib/format'
+import type { Instance, Stats, ThresholdRow } from '../lib/types'
 import { overridesFrom } from '../lib/thresholds'
 import { DatabaseTab } from './DatabaseTab'
 
@@ -145,6 +147,44 @@ function SecretInput({
         />
       )}
     </span>
+  )
+}
+
+/** What is kept right now, and a way to remove all of it (also after keeping was turned off). */
+function KeptMedia() {
+  const qc = useQueryClient()
+  const stats = useQuery({ queryKey: ['stats'], queryFn: () => api<Stats>('/api/stats') })
+  const remove = useMutation({
+    mutationFn: () => api('/api/media', { method: 'DELETE' }),
+    onSuccess: () => {
+      toast.success('Kept media is being deleted.')
+      return qc.invalidateQueries({ queryKey: ['stats'] })
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not delete the media.'),
+  })
+  const files = stats.data?.media_files ?? 0
+  if (files === 0) return null
+  return (
+    <Section
+      title="Kept now"
+      description="Files stay until their keep time ends, even if you turn keeping off."
+    >
+      <p className="text-sm">
+        <span className="tabular font-medium">{files}</span> {files === 1 ? 'file' : 'files'},{' '}
+        {fileSize(stats.data?.media_bytes ?? 0)}
+      </p>
+      <ConfirmDialog
+        trigger={
+          <Button variant="outline" className="w-fit" disabled={remove.isPending}>
+            <Trash2 /> Delete all kept media
+          </Button>
+        }
+        title="Delete all kept media?"
+        description="Every kept photo and voice note is deleted from the storage. The messages and alerts stay."
+        confirmLabel="Delete media"
+        onConfirm={() => remove.mutate()}
+      />
+    </Section>
   )
 }
 
@@ -656,7 +696,7 @@ export function Settings() {
           <TabsContent value="Media" className="flex flex-col gap-5">
             <Section
               title="Keep media"
-              description="By default Iris deletes every photo, voice note and video as soon as it has been checked. Turn this on to keep copies you can open from alerts."
+              description="By default Iris deletes every photo and voice note as soon as it has been checked. Turn this on to keep copies you can open from alerts."
             >
               <Toggle
                 label="Keep media"
@@ -699,10 +739,12 @@ export function Settings() {
                 </fieldset>
               )}
               <p className="max-w-prose text-sm text-muted-foreground">
-                Content Iris withholds (anything sexual involving minors, or sexual images and
-                videos) is never kept, whatever you choose.
+                Content Iris withholds (anything sexual involving minors, or sexual images) is never
+                kept, whatever you choose. Videos are not kept at all, because Iris checks what a
+                video says, not what it shows.
               </p>
             </Section>
+            <KeptMedia />
 
             {mediaOn && (
               <>

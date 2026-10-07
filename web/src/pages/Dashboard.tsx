@@ -204,7 +204,7 @@ export function Dashboard() {
             <Stat label="Last 7 days" value={s.messages_7d} to="/messages" />
             <Stat label="In the queue" value={s.queue_depth} />
             <Stat label="Phones" value={s.instances} to="/instances" />
-            {s.media_policy && s.media_policy !== 'off' && (
+            {((s.media_policy && s.media_policy !== 'off') || (s.media_files ?? 0) > 0) && (
               <Stat
                 label="Media kept"
                 value={s.media_files ?? 0}

@@ -78,12 +78,19 @@ async def test_scheduled_or_withheld_or_orphaned_media_is_not_shown(app_client: 
 
 
 @respx.mock
-async def test_a_missing_file_ends_the_stream_instead_of_a_server_error(app_client: Any) -> None:
+async def test_a_missing_file_is_a_clean_404_not_a_broken_200(app_client: Any) -> None:
     row = await _keep_one(app_client)
     for f in files():
         f.unlink()
     r = await app_client.get(f"/api/media/{row.id}")
-    assert r.status_code == 200 and r.content == b""
+    assert r.status_code == 404 and "no longer in the storage" in r.json()["detail"]
+
+
+@respx.mock
+async def test_several_ranges_at_once_just_get_the_whole_file(app_client: Any) -> None:
+    row = await _keep_one(app_client)
+    r = await app_client.get(f"/api/media/{row.id}", headers={"Range": "bytes=0-1,5-6"})
+    assert r.status_code == 200 and r.content == ORIGINAL
 
 
 @respx.mock

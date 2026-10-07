@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import hmac
 import ipaddress
+import json
 import os
 import secrets
 import socket
@@ -18,7 +19,7 @@ from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import quote, urlsplit
+from urllib.parse import SplitResult, quote, urlsplit
 
 import httpx
 
@@ -93,7 +94,26 @@ def sigv4_headers(
 
 
 def _is_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped  # ::ffff:169.254.169.254 is the metadata address too
     return ip.is_link_local or ip.is_unspecified or ip.is_multicast or ip == _METADATA_V6
+
+
+def _literal_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """An IP written in any form a resolver would accept (dotted, decimal, hex, octal, IPv6)."""
+    try:
+        return ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    try:
+        return ipaddress.IPv4Address(socket.inet_aton(host))  # 2852039166, 0xa9fea9fe, 0251.254...
+    except OSError:
+        return None
+
+
+def _host_of(parts: SplitResult) -> str:
+    """The lowercase host without a trailing dot (those spellings reach the same server)."""
+    return (parts.hostname or "").lower().rstrip(".")
 
 
 def validate_endpoint(endpoint: str) -> str:
@@ -103,21 +123,31 @@ def validate_endpoint(endpoint: str) -> str:
         raise ValueError("The endpoint must start with http:// or https:// and name a host.")
     if parts.username or parts.password or parts.query or parts.fragment:
         raise ValueError("The endpoint must be just a host (and optional port and path).")
-    host = parts.hostname.lower()
-    if host in _BLOCKED_NAMES:
+    host = _host_of(parts)
+    ip = _literal_ip(host)
+    if host in _BLOCKED_NAMES or (ip is not None and _is_blocked(ip)):
         raise ValueError("That address is not allowed.")
     try:
-        if _is_blocked(ipaddress.ip_address(host)):
-            raise ValueError("That address is not allowed.")
+        port = parts.port
     except ValueError as exc:
-        if str(exc) == "That address is not allowed.":
-            raise
-    return endpoint.strip().rstrip("/")
+        raise ValueError("The endpoint's port is not valid.") from exc
+    shown = f"[{host}]" if ":" in host else host
+    default = 443 if parts.scheme == "https" else 80
+    netloc = shown if port in (None, default) else f"{shown}:{port}"
+    return f"{parts.scheme}://{netloc}{parts.path.rstrip('/')}"
 
 
 async def refuse_blocked_resolution(endpoint: str) -> None:
-    """Names that resolve to a link-local or metadata address are refused (checked when testing)."""
-    host = urlsplit(endpoint).hostname or ""
+    """Names that resolve to a link-local or metadata address are refused.
+
+    Checked when testing and again before every request, so a name that later points somewhere
+    else (DNS rebinding) is caught too.
+    """
+    host = _host_of(urlsplit(endpoint))
+    if (ip := _literal_ip(host)) is not None:
+        if _is_blocked(ip):
+            raise MediaStoreError("That address is not allowed.")
+        return
     try:
         infos = await asyncio.to_thread(socket.getaddrinfo, host, None)
     except OSError as exc:
@@ -135,9 +165,22 @@ class S3Store:
         cfg: S3Config,
         transport: httpx.AsyncBaseTransport | None = None,
         clock: "type[datetime] | None" = None,
+        guard: bool = True,
     ) -> None:
         self.cfg = cfg
-        self._base = urlsplit(cfg.endpoint)
+        # The Host header is signed, so it must read exactly as the client will send it.
+        self._base = urlsplit(validate_endpoint(cfg.endpoint))
+        self._guard = guard
+        self.location = json.dumps(
+            {
+                "endpoint": self._base.geturl(),
+                "bucket": cfg.bucket,
+                "prefix": cfg.prefix,
+                "region": cfg.region,
+                "path_style": cfg.path_style,
+            },
+            sort_keys=True,
+        )
         self._client = httpx.AsyncClient(
             transport=transport, timeout=httpx.Timeout(30.0, connect=10.0), follow_redirects=False
         )
@@ -186,6 +229,8 @@ class S3Store:
         return MediaStoreError(f"The storage answered with an error (HTTP {status}).")
 
     async def _send(self, request: httpx.Request, op: str) -> httpx.Response:
+        if self._guard:
+            await refuse_blocked_resolution(self._base.geturl())
         started = time.perf_counter()
         try:
             response = await self._client.send(request, stream=True)

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import type { KeptMedia } from '../lib/types'
 import { MediaBadge, MediaPlayer } from './MediaPlayer'
 
@@ -38,4 +38,11 @@ test('a type browsers cannot play is offered as a download', () => {
 test('the badge names the kind and the size', () => {
   render(<MediaBadge media={{ ...base, kind: 'video', size_bytes: 5 * 1024 * 1024 }} />)
   expect(screen.getByText('Video kept')).toHaveAttribute('title', 'Video kept, 5.0 MB')
+})
+
+test('a file that cannot be loaded says so instead of showing a broken picture', () => {
+  render(<MediaPlayer media={base} />)
+  fireEvent.error(screen.getByRole('img', { name: /photo kept/ }))
+  expect(screen.getByRole('alert')).toHaveTextContent('could not be loaded')
+  expect(screen.queryByRole('img')).not.toBeInTheDocument()
 })

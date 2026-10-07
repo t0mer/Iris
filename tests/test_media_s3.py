@@ -55,7 +55,7 @@ class Server:
 
 
 def _store(server: Server, cfg: S3Config = CFG) -> S3Store:
-    return S3Store(cfg, transport=httpx.MockTransport(server))
+    return S3Store(cfg, transport=httpx.MockTransport(server), guard=False)
 
 
 def _file(tmp_path: Path, data: bytes = b"hello world") -> Path:
@@ -143,7 +143,7 @@ async def test_an_unreachable_endpoint_is_explained(tmp_path: Path) -> None:
     def boom(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("no route to s3.example.com")
 
-    store = S3Store(CFG, transport=httpx.MockTransport(boom))
+    store = S3Store(CFG, transport=httpx.MockTransport(boom), guard=False)
     with pytest.raises(MediaStoreError, match="Could not reach") as err:
         await store.put("media/4/d.jpg", _file(tmp_path), "image/jpeg")
     assert "s3.example.com" not in str(err.value)
@@ -163,6 +163,12 @@ async def test_probe_writes_reads_and_deletes(monkeypatch: pytest.MonkeyPatch) -
 @pytest.mark.parametrize(
     "bad",
     [
+        "http://2852039166/",  # the metadata address written as one decimal number
+        "http://0xa9fea9fe/",  # ...in hex
+        "http://0251.0376.0251.0376/",  # ...in octal
+        "http://169.254.169.254./",  # ...with a trailing dot
+        "http://metadata.google.internal./",
+        "http://[::ffff:169.254.169.254]/",  # ...as an IPv4-mapped IPv6 address
         "ftp://x.example",
         "s3.example.com",
         "http://169.254.169.254/latest",
@@ -184,6 +190,50 @@ def test_bad_endpoints_are_refused(bad: str) -> None:
 )
 def test_normal_endpoints_pass(ok: str) -> None:
     assert validate_endpoint(ok) == ok.rstrip("/")
+
+
+@pytest.mark.parametrize(
+    ("typed", "normal"),
+    [
+        ("https://S3.Example.com:443/", "https://s3.example.com"),
+        ("http://Seaweed.LAN:80", "http://seaweed.lan"),
+        ("https://host.example:9000/s3/", "https://host.example:9000/s3"),
+    ],
+)
+def test_endpoints_are_written_the_way_the_client_sends_them(typed: str, normal: str) -> None:
+    assert validate_endpoint(typed) == normal
+
+
+async def test_the_signed_host_is_the_host_that_is_sent(tmp_path: Path) -> None:
+    server = Server()
+    cfg = S3Config(**{**CFG.__dict__, "endpoint": "https://S3.Example.com:443"})
+    await _store(server, cfg).put("media/1/a.jpg", _file(tmp_path), "image/jpeg")
+    req = server.requests[0]
+    assert req.headers["host"] == "s3.example.com"
+    assert "SignedHeaders=host;" in req.headers["authorization"]
+
+
+async def test_every_request_checks_where_the_name_points_now(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def rebound(host: str, port: Any) -> list[Any]:
+        return [(2, 1, 6, "", ("169.254.169.254", 0))]  # the name now points at the metadata host
+
+    monkeypatch.setattr(s3.socket, "getaddrinfo", rebound)
+    server = Server()
+    store = S3Store(CFG, transport=httpx.MockTransport(server))  # the guard is on, as in use
+    with pytest.raises(MediaStoreError, match="not allowed"):
+        await store.put("media/1/a.jpg", _file(tmp_path), "image/jpeg")
+    assert server.requests == []  # nothing was sent
+
+
+async def test_the_location_records_where_the_files_live() -> None:
+    import json as _json
+
+    store = S3Store(CFG, transport=httpx.MockTransport(Server()), guard=False)
+    loc = _json.loads(store.location)
+    assert loc["endpoint"] == "https://s3.example.com" and loc["bucket"] == "iris-media"
+    assert "secret" not in store.location.lower() and SECRET not in store.location
 
 
 async def test_a_name_that_resolves_to_the_metadata_address_is_refused(

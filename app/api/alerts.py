@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import ColumnElement, and_, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -303,6 +303,7 @@ class ReviewResolution(BaseModel):
 async def resolve_review(
     message_id: int,
     body: ReviewResolution,
+    request: Request,
     db: DB,
     cfg: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, Any]:
@@ -316,7 +317,15 @@ async def resolve_review(
         scores = await scores_from_classifications(db, m)
         await db.commit()
         # Before the alert is built, so its text carries the link (best effort, never fails).
-        await keep_media(db, m, list(scores), cfg.key_bytes, cfg.data_dir, f"review-{m.id}")
+        await keep_media(
+            request.app.state.session_factory,
+            m.id,
+            list(scores),
+            cfg.key_bytes,
+            cfg.data_dir,
+            f"review-{m.id}",
+        )
+        await db.refresh(m)  # the other session may have flagged or changed it meanwhile
         alert = await create_alert(db, m, scores)
         alert_id = alert.id
     else:

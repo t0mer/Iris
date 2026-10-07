@@ -81,3 +81,13 @@ async def test_error_messages_never_contain_paths(store: LocalStore, tmp_path: P
     with pytest.raises(MediaStoreError) as err:
         await _read(store, "media/9/missing.jpg")
     assert str(tmp_path) not in str(err.value) and "missing" not in str(err.value)
+
+
+def test_no_leftover_part_files_after_a_failed_write(tmp_path: Path) -> None:
+    import asyncio
+
+    store = LocalStore(tmp_path / "media")
+    asyncio.run(store.put("media/1/a.jpg", _src(tmp_path), "image/jpeg"))
+    with pytest.raises(MediaStoreError):
+        asyncio.run(store.put("media/1/b.jpg", tmp_path / "missing", "image/jpeg"))
+    assert not list(store.root.rglob("*.part"))

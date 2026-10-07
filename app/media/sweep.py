@@ -8,7 +8,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models import Message, StoredMedia
-from app.media.factory import MediaOverrides, build_store
+from app.media.factory import build_store, overrides_for
 from app.media.store import MediaStore, MediaStoreError
 from app.settings_store import get_setting
 
@@ -38,20 +38,25 @@ async def sweep_media(
         rows = list(
             (
                 await db.execute(
-                    select(StoredMedia).where(StoredMedia.purge.is_(True)).limit(BATCH)
+                    select(StoredMedia)
+                    .where(StoredMedia.purge.is_(True))
+                    .order_by(StoredMedia.purge_attempts, StoredMedia.id)  # stuck rows go last
+                    .limit(BATCH)
                 )
             ).scalars()
         )
         removed = 0
-        stores: dict[str, MediaStore] = {}
+        stores: dict[int, MediaStore] = {}
         for row in rows:
             try:
-                if row.backend not in stores:
-                    stores[row.backend] = await build_store(
-                        db, key_bytes, data_dir, MediaOverrides(backend=row.backend)
+                store = stores.get(row.id)
+                if store is None:
+                    store = stores[row.id] = await build_store(
+                        db, key_bytes, data_dir, overrides_for(row)
                     )
-                await stores[row.backend].delete(row.key)
+                await store.delete(row.key)
             except MediaStoreError as exc:
+                row.purge_attempts += 1
                 logger.warning("could not delete kept media {}: {}", row.id, exc)
                 continue
             await db.delete(row)

@@ -94,3 +94,9 @@ test('shows the number and size of kept media when it is on', async () => {
   expect(label.closest('div')).toHaveTextContent('3.0 MB')
   expect(label.closest('div')).toHaveTextContent('7')
 })
+
+test('still shows kept media after keeping was turned off', async () => {
+  cleanup()
+  renderPage({ media_policy: 'off', media_files: 2, media_bytes: 2048 })
+  expect(await screen.findByText('Media kept')).toBeInTheDocument()
+})
