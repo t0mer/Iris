@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { useQuery } from '@tanstack/react-query'
 import { BellRing, ChevronLeft, FileX, MessagesSquare } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
@@ -12,6 +13,7 @@ import { Skeleton } from '../components/ui/skeleton'
 import { api, ApiError } from '../lib/api'
 import { fileSize } from '../lib/format'
 import type { MediaInfo } from '../lib/types'
+import { BackButton } from '../components/BackButton'
 
 const LABEL = { image: 'Photo', audio: 'Voice note', video: 'Video' } as const
 
@@ -32,10 +34,12 @@ export function MediaViewer() {
   if (gone)
     return (
       <div className="flex max-w-3xl flex-col gap-6">
-        <PageHeader title="Kept media" />
-        <EmptyState icon={FileX} title="This file is no longer kept">
-          It was deleted when its keep time ended, or it was withheld. The message itself may still
-          be in Iris.
+        <BackButton fallback="/alerts" />
+        <PageHeader title={t('Kept media')} />
+        <EmptyState icon={FileX} title={t('This file is no longer kept')}>
+          {t(
+            'It was deleted when its keep time ended, or it was withheld. The message itself may still be in Iris.',
+          )}
         </EmptyState>
       </div>
     )
@@ -45,10 +49,10 @@ export function MediaViewer() {
         to="/alerts"
         className="inline-flex min-h-10 w-fit items-center gap-1 text-sm font-medium text-primary"
       >
-        <ChevronLeft className="size-4 rtl:rotate-180" /> All alerts
+        <ChevronLeft className="size-4 rtl:rotate-180" /> {t('All alerts')}
       </Link>
       <PageHeader
-        title={m ? LABEL[m.kind] : 'Kept media'}
+        title={m ? LABEL[m.kind] : t('Kept media')}
         description={m ? `${m.content_type}, ${fileSize(m.size_bytes)}` : undefined}
       />
       {info.isError && <QueryError what="the media" onRetry={() => void info.refetch()} />}
@@ -67,13 +71,17 @@ export function MediaViewer() {
             {m.alert_id !== null && (
               <Button asChild variant="outline">
                 <Link to={`/alerts/${m.alert_id}`}>
-                  <BellRing /> See the alert
+                  <BellRing /> {t('See the alert')}
                 </Link>
               </Button>
             )}
-            <Button asChild variant="ghost">
-              <Link to={`/messages/${m.message_id}`}>
-                <MessagesSquare /> See the conversation
+            <Button asChild variant="ghost" size="sm">
+              <Link
+                to={`/messages/${m.message_id}`}
+                aria-label={t('See the conversation')}
+                title={t('Open the full conversation')}
+              >
+                <MessagesSquare /> {t('Chat')}
               </Link>
             </Button>
           </div>

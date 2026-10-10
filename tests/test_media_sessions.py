@@ -100,6 +100,10 @@ async def test_media_is_fetched_from_the_session_that_has_it(app_client: Any) ->
 @respx.mock
 async def test_it_fails_only_when_no_session_has_the_media(app_client: Any) -> None:
     deps, ta, tb = await two_sessions(app_client)
+    await app_client.put("/api/settings", json={"settings": {"media.recovery_wait_seconds": 0}})
+    respx.get(url__regex=r"https://wa\.x/api/sessions/.*/messages/.*/history").mock(
+        return_value=httpx.Response(404)
+    )
     for sid in ("a", "b"):
         respx.get(url__regex=session_url(sid)).mock(return_value=httpx.Response(404))
     respx.post(MOD_URL).mock(return_value=mod_response())

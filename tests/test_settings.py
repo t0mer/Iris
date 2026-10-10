@@ -16,6 +16,27 @@ async def test_defaults_and_secret_reported_as_set_flag(app_client: Any) -> None
     assert s["openai.api_key"] == {"set": False}
 
 
+async def test_telegram_connection_without_phone_and_safe_errors(app_client: Any) -> None:
+    import httpx
+    import respx
+
+    missing = await app_client.post("/api/settings/test/telegram", json={})
+    assert missing.json()["ok"] is False
+    token = "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789"
+    await app_client.put("/api/settings", json={"settings": {"alerts.telegram_bot_token": token}})
+    with respx.mock:
+        route = respx.get(f"https://api.telegram.org/bot{token}/getMe").mock(
+            return_value=httpx.Response(200, json={"ok": True, "result": {"is_bot": True}})
+        )
+        assert (await app_client.post("/api/settings/test/telegram", json={})).json()["ok"]
+        route.mock(return_value=httpx.Response(401, json={"ok": False}))
+        failed = await app_client.post("/api/settings/test/telegram", json={})
+        assert not failed.json()["ok"] and token not in failed.text
+        route.mock(side_effect=httpx.ReadTimeout(token))
+        failed = await app_client.post("/api/settings/test/telegram", json={})
+        assert not failed.json()["ok"] and token not in failed.text
+
+
 async def test_secret_is_encrypted_write_only_and_round_trips(app_client: Any) -> None:
     r = await app_client.put("/api/settings", json={"settings": {"openai.api_key": "sk-live-123"}})
     assert r.status_code == 200 and r.json()["openai.api_key"] == {"set": True}
@@ -136,6 +157,25 @@ async def test_alert_test_button_sends_a_real_message_with_entered_values(app_cl
         assert b"972501234567@c.us" in sent.content
         text = json.loads(sent.content)["text"]
         assert "Alert delivery is working" in text and is_own_alert(text, get_settings().key_bytes)
+        limited = (
+            await app_client.post(
+                "/api/settings/test/alert",
+                json={"sender_instance_id": inst["id"], "recipient": "972501234567"},
+            )
+        ).json()
+        assert not limited["ok"] and "Sending limit reached" in limited["detail"]
+        assert route.call_count == 1
+        from datetime import UTC, datetime, timedelta
+
+        from sqlalchemy import update
+
+        from app.db.models import SendingBudget
+
+        async with app_client.app.state.session_factory() as db:
+            await db.execute(
+                update(SendingBudget).values(next_allowed=datetime.now(UTC) - timedelta(seconds=1))
+            )
+            await db.commit()
         route.mock(return_value=httpx.Response(400, json={"message": "Session is not active"}))
         bad = (
             await app_client.post(
@@ -152,7 +192,7 @@ async def test_alert_test_button_sends_a_real_message_with_entered_values(app_cl
 async def test_alert_settings_defaults_and_validation(app_client: Any) -> None:
     s = (await app_client.get("/api/settings")).json()
     assert s["alerts.cooldown_minutes"] == 10 and s["alerts.timezone"] == "Asia/Jerusalem"
-    assert s["alerts.alert_on_review"] is False
+    assert s["alerts.alert_on_review"] is True
     for bad in (
         {"alerts.timezone": "Mars/Base"},
         {"alerts.cooldown_minutes": -1},

@@ -6,16 +6,25 @@ import type {
 } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { cn } from '../../lib/cn'
+import { t } from '../../lib/i18n'
 
 const control =
   'min-h-11 min-w-0 w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-base md:text-sm text-foreground placeholder:text-muted-foreground disabled:opacity-60'
 
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={cn(control, className)} {...props} />
+  const technical =
+    props.type === 'password' ||
+    props.type === 'email' ||
+    props.type === 'url' ||
+    props.type === 'tel' ||
+    props.inputMode === 'numeric' ||
+    props.autoComplete === 'username' ||
+    /^https?:/.test(props.placeholder ?? '')
+  return <input dir={technical ? 'ltr' : 'auto'} className={cn(control, className)} {...props} />
 }
 
 export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea className={cn(control, 'min-h-24', className)} {...props} />
+  return <textarea dir="auto" className={cn(control, 'min-h-24', className)} {...props} />
 }
 
 /** A native select: it gets the operating system's own picker on phones, which beats any custom one. */
@@ -44,9 +53,9 @@ export function Field({
 }) {
   return (
     <label className={cn('flex flex-col gap-1.5 text-sm font-medium', className)}>
-      {label}
+      {t(label)}
       {children}
-      {hint && <span className="text-xs font-normal text-muted-foreground">{hint}</span>}
+      {hint && <span className="text-xs font-normal text-muted-foreground">{t(hint)}</span>}
     </label>
   )
 }

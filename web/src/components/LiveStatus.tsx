@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { cn } from '../lib/cn'
 import type { LiveStatus as Status } from '../lib/live'
 
@@ -11,13 +12,13 @@ export function LiveStatus({ status, compact = false }: { status: Status; compac
         'inline-flex items-center gap-1.5 text-xs text-muted-foreground',
         compact && 'ms-auto',
       )}
-      title={live ? 'New messages and alerts appear on their own' : 'Trying to reconnect'}
+      title={live ? t('New messages and alerts appear on their own') : t('Trying to reconnect')}
     >
       <span
         aria-hidden
         className={cn('size-2 rounded-full', live ? 'bg-success' : 'bg-warning animate-pulse')}
       />
-      {live ? 'Live' : 'Reconnecting…'}
+      {live ? t('Live') : t('Reconnecting…')}
     </span>
   )
 }

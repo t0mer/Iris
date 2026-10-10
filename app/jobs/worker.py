@@ -2,25 +2,55 @@
 
 import asyncio
 import shutil
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 
 from loguru import logger
 from sqlalchemy.exc import OperationalError
 
-from app.alerts.delivery import deliver_alert, notify_change
-from app.chats import resolve_group_names
+from app.alerts.delivery import deliver_alert, deliver_test, notify_change
+from app.classify.evaluation import evaluate_job
 from app.config import get_settings
 from app.jobs import queue
-from app.jobs.handlers import Deps, process_message
+from app.jobs.handlers import Deps, prepare_alert, process_message
 from app.jobs.queue import ClaimedJob, PermanentError, TransientError
-from app.media.sweep import sweep_media
+from app.provider_health import deliver_notice
+from app.schedules import due_schedules, run_schedule
 
 Handler = Callable[[ClaimedJob, Deps], Awaitable[None]]
 HANDLERS: dict[str, Handler] = {
+    "evaluate_learning": evaluate_job,
     "process_message": process_message,
+    "prepare_alert": prepare_alert,
     "deliver_alert": deliver_alert,
     "notify_change": notify_change,
+    "test_alert": deliver_test,
+    "run_schedule": run_schedule,
+    "provider_notice": deliver_notice,
 }
+
+
+_message_locks: dict[tuple[int, int], tuple[asyncio.Lock, int]] = {}
+
+
+@asynccontextmanager
+async def _message_execution(job: ClaimedJob, deps: Deps) -> AsyncIterator[None]:
+    mid = job.payload.get("message_id")
+    if job.type != "process_message" or not isinstance(mid, int):
+        yield
+        return
+    key = (id(deps.session_factory), mid)
+    lock, users = _message_locks.get(key, (asyncio.Lock(), 0))
+    _message_locks[key] = (lock, users + 1)
+    try:
+        async with lock:
+            yield
+    finally:
+        _, users = _message_locks[key]
+        if users == 1:
+            del _message_locks[key]
+        else:
+            _message_locks[key] = (lock, users - 1)
 
 
 async def run_one(job: ClaimedJob, deps: Deps, handlers: dict[str, Handler] = HANDLERS) -> str:
@@ -51,7 +81,27 @@ async def _run_one(job: ClaimedJob, deps: Deps, handlers: dict[str, Handler]) ->
     try:
         if handler is None:
             raise PermanentError(f"no handler for job type {job.type!r}")
-        await handler(job, deps)
+        cfg = get_settings()
+        timeout = cfg.job_timeout_seconds
+        if not cfg.job_heartbeat_seconds:
+            timeout = min(timeout, int(queue.STALE_LOCK.total_seconds()) - 30)
+        async with asyncio.timeout(timeout), _message_execution(job, deps):
+            async with factory() as db:
+                await queue.ensure_owned(db, job)
+                await db.commit()
+            await handler(job, deps)
+    except queue.LostLeaseError:
+        return "superseded"
+    except TimeoutError:
+        return await queue.fail(
+            factory,
+            job,
+            "Handler exceeded its execution time limit",
+            transient=job.type in ("process_message", "prepare_alert"),
+            uncertain_delivery=job.type in ("deliver_alert", "notify_change", "test_alert"),
+        )
+    except queue.DeferredError as exc:
+        return await queue.defer(factory, job, exc.delay)
     except TransientError as exc:
         status = await queue.fail(
             factory, job, str(exc), transient=True, retry_after=exc.retry_after
@@ -70,7 +120,7 @@ async def _run_one(job: ClaimedJob, deps: Deps, handlers: dict[str, Handler]) ->
         return await queue.fail(
             factory, job, f"unexpected {exc.__class__.__name__}", transient=False
         )
-    await queue.ack(factory, job.id)
+    await queue.ack(factory, job.id, job.attempts)
     return "done"
 
 
@@ -79,6 +129,7 @@ class WorkerPool:
         self._deps = deps
         self._size = size
         self._delivery_size = get_settings().delivery_workers if size else 0
+        self._operations_size = 1 if size else 0
         self._poll = poll_interval
         self._tasks: list[asyncio.Task[None]] = []
         self._generation = 0
@@ -100,6 +151,16 @@ class WorkerPool:
             )
             for i in range(self._delivery_size)
         )
+        if self._operations_size:
+            self._tasks.append(
+                asyncio.create_task(
+                    self._loop(
+                        self._size + self._delivery_size,
+                        operations=True,
+                        generation=self._generation,
+                    )
+                )
+            )
         if self._size:
             self._tasks.append(asyncio.create_task(self._maintenance()))
             self._maintenance_started = True
@@ -111,6 +172,7 @@ class WorkerPool:
             return
         self._generation += 1
         self._size, self._delivery_size = size, delivery_size
+        self._operations_size = 1 if size else 0
         active = [task for task in self._tasks if not task.done()]
         generation = self._generation
         self._tasks = [
@@ -120,6 +182,12 @@ class WorkerPool:
             asyncio.create_task(self._loop(size + i, delivery=True, generation=generation))
             for i in range(delivery_size)
         )
+        if self._operations_size:
+            self._tasks.append(
+                asyncio.create_task(
+                    self._loop(size + delivery_size, operations=True, generation=generation)
+                )
+            )
         self._tasks.extend(active)
         if size and not self._maintenance_started:
             self._tasks.append(asyncio.create_task(self._maintenance()))
@@ -137,45 +205,38 @@ class WorkerPool:
 
     @property
     def size(self) -> int:
-        return self._size + self._delivery_size
+        return self._size + self._delivery_size + self._operations_size
 
     async def _maintenance(self) -> None:
         """Housekeeping: re-queue orphaned jobs, and name groups that still have no name."""
         first = True
         while True:
             if not first:
-                await asyncio.sleep(60)
+                await asyncio.sleep(5)
             first = False
-            try:
-                await queue.recover_stale(self._deps.session_factory)
-            except Exception:
-                logger.exception("stale job recovery failed")
-            if get_settings().monitoring_silence_minutes:
-                from app.monitoring import probe_sessions
-
+            if self._size:
                 try:
-                    await probe_sessions(self._deps.session_factory, self._deps.key_bytes)
+                    await due_schedules(self._deps)
                 except Exception:
-                    logger.warning("monitoring session probe failed")
-            try:
-                await resolve_group_names(self._deps.session_factory, self._deps.key_bytes)
-            except Exception:
-                logger.exception("group name lookup failed")
-            try:
-                await sweep_media(
-                    self._deps.session_factory, self._deps.key_bytes, self._deps.data_dir
-                )
-            except Exception:
-                logger.exception("media cleanup failed")
+                    logger.exception("Schedule dispatch failed")
 
-    async def _loop(self, n: int, delivery: bool = False, generation: int = 0) -> None:
+    async def _loop(
+        self, n: int, delivery: bool = False, operations: bool = False, generation: int = 0
+    ) -> None:
         while generation == self._generation:
             try:
-                delivery_types = ("deliver_alert", "notify_change")
+                delivery_types = ("deliver_alert", "notify_change", "test_alert", "provider_notice")
                 job = await queue.claim(
                     self._deps.session_factory,
-                    types=delivery_types if delivery else None,
-                    exclude_types=delivery_types if self._delivery_size and not delivery else (),
+                    types=("run_schedule",)
+                    if operations
+                    else (delivery_types if delivery else None),
+                    exclude_types=(
+                        ()
+                        if operations
+                        else ("run_schedule",)
+                        + (delivery_types if self._delivery_size and not delivery else ())
+                    ),
                 )
                 if job is None:
                     await asyncio.sleep(self._poll)

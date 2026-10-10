@@ -17,10 +17,10 @@ from app.config import Settings, get_settings
 from app.db.models import Message
 from app.deps import get_db
 from app.jobs.queue import PermanentError, TransientError
-from app.security.auth import current_user
+from app.security.auth import admin_user
 from app.settings_store import get_secret, get_setting
 
-router = APIRouter(prefix="/api/classify", tags=["classify"], dependencies=[Depends(current_user)])
+router = APIRouter(prefix="/api/classify", tags=["classify"], dependencies=[Depends(admin_user)])
 
 MAX_CHECKS = 30
 WINDOW_SECONDS = 300

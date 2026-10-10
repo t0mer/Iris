@@ -185,3 +185,79 @@ async def test_existing_alert_and_classification_survive_redaction_metadata_only
     listed = (await app_client.get("/api/alerts")).json()["items"]
     assert all(i["quote"] is None for i in listed if i["id"] == 1)
     assert json.dumps(d) and isinstance(datetime.fromisoformat(d["created_at"]), datetime)
+
+
+async def test_missing_data_preserves_review_evidence_and_can_be_resolved_later(
+    app_client: Any,
+) -> None:
+    from app.db.models import Job, ReviewFeedback, StoredMedia
+
+    _, token = await make_instance(app_client)
+    await post(app_client, token, fx("text_received_mixed"))
+    async with app_client.app.state.session_factory() as db:
+        message = (await db.scalars(select(Message))).one()
+        mid = message.id
+        message.status, message.verdict = "done", "review"
+        message.review_reason = "Attachment could not be checked"
+        before_text = message.text
+        await db.execute(update(Job).values(status="done"))
+        db.add(
+            StoredMedia(
+                message_id=mid,
+                backend="local",
+                key="review/test.webp",
+                content_type="image/webp",
+                kind="image",
+                size_bytes=20,
+                sha256="a" * 64,
+            )
+        )
+        db.add(
+            Classification(
+                message_id=mid,
+                stage="moderation",
+                input_kind="text",
+                model="test",
+                scores={},
+                flagged_categories=[],
+                band="inconclusive",
+            )
+        )
+        await db.commit()
+    for _ in range(2):
+        response = await app_client.post(
+            f"/api/review/{mid}/data-issue", json={"issue": "missing_data"}
+        )
+        assert response.status_code == 200
+        assert response.json() == {
+            "ok": True,
+            "ignored": True,
+            "issue": "missing_data",
+        }
+    page = (await app_client.get("/api/review")).json()
+    assert page["total"] == 0 and page["reviewed_total"] == 0
+    page = (await app_client.get("/api/review?view=missing_data")).json()
+    assert page["total"] == 1
+    assert page["items"][0]["missing_data"] is True
+    assert (await app_client.get("/api/stats")).json()["review_queue"] == 0
+    async with app_client.app.state.session_factory() as db:
+        message = await db.get(Message, mid)
+        assert message and message.verdict == "review" and message.text == before_text
+        assert message.review_reason == "Attachment could not be checked"
+        assert not (await db.scalars(select(StoredMedia))).one().purge
+        assert len((await db.scalars(select(Classification))).all()) == 1
+        assert len((await db.scalars(select(Job))).all()) == 1
+        assert not (await db.scalars(select(Alert))).all()
+        from app.db.models import ReviewDataIssue
+
+        assert await db.get(ReviewFeedback, mid) is None
+        assert (await db.get(ReviewDataIssue, mid)).issue == "missing_data"
+    assert (
+        await app_client.post(f"/api/review/{mid}", json={"resolution": "safe"})
+    ).status_code == 200
+    page = (await app_client.get("/api/review")).json()
+    assert page["total"] == 0 and page["reviewed_total"] == 1
+
+    async with app_client.app.state.session_factory() as db:
+        assert (await db.get(ReviewDataIssue, mid)).issue == "missing_data"
+        assert (await db.get(ReviewFeedback, mid)).verdict == "safe"

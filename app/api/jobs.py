@@ -11,9 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Job
 from app.deps import get_db
 from app.jobs.queue import retry_job
-from app.security.auth import current_user
+from app.security.auth import admin_user
 
-router = APIRouter(prefix="/api/jobs", tags=["jobs"], dependencies=[Depends(current_user)])
+router = APIRouter(prefix="/api/jobs", tags=["jobs"], dependencies=[Depends(admin_user)])
 DB = Annotated[AsyncSession, Depends(get_db)]
 
 
@@ -25,6 +25,7 @@ class JobOut(BaseModel):
     max_attempts: int
     last_error: str | None
     message_id: int | None
+    run_after: datetime
     created_at: datetime
 
 
@@ -46,6 +47,7 @@ async def list_jobs(db: DB, status: str | None = None, limit: int = 100) -> list
             max_attempts=j.max_attempts,
             last_error=j.last_error,
             created_at=j.created_at,
+            run_after=j.run_after,
             message_id=j.payload.get("message_id")
             if isinstance(j.payload.get("message_id"), int)
             else None,
@@ -56,6 +58,6 @@ async def list_jobs(db: DB, status: str | None = None, limit: int = 100) -> list
 
 @router.post("/{job_id}/retry")
 async def retry(job_id: int, db: DB) -> dict[str, bool]:
-    if not await retry_job(db, job_id):
+    if not await retry_job(db, job_id, manual=True):
         raise HTTPException(status_code=409, detail="Only failed or dead jobs can be retried")
     return {"ok": True}

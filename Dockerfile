@@ -1,15 +1,17 @@
 # Stage 1: SPA, built once on the native build platform (output is arch-independent).
-FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend
+FROM --platform=$BUILDPLATFORM mirror.gcr.io/library/node:22-alpine AS frontend
 WORKDIR /src/web
 COPY web/package*.json ./
 RUN npm ci
 COPY web/ ./
+# The frontend and backend share the supported language definitions.
+COPY app/assets/ui-languages.json /src/app/assets/ui-languages.json
 # Vite outDir is ../app/static
 RUN npm run build
 
 # Stage 2: runtime (Debian-based so ffmpeg and manylinux wheels work on amd64 and arm64).
-FROM python:3.12-slim
-ARG VERSION=dev
+FROM mirror.gcr.io/library/python:3.12-slim
+ARG VERSION=2026.10.0-beta.54
 ARG REVISION=unknown
 LABEL org.opencontainers.image.title="iris" \
       org.opencontainers.image.description="Self-hosted WhatsApp safety monitor for kids" \

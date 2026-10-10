@@ -4,16 +4,34 @@ services:
     build:
       context: ../..
       args:
-        VERSION: ${IRIS_BUILD_VERSION:-local-providers-beta.1}
-    image: ${IRIS_IMAGE:-iris-local:local-providers-beta.1}
+        VERSION: ${IRIS_BUILD_VERSION:-2026.10.0-beta.8}
+    image: ${IRIS_IMAGE:-iris-local:2026.10.0-beta.8}
     ports: ["${IRIS_HTTP_PORT:-8182}:8080"]
     volumes: ["${IRIS_DATA_PATH:?Set a persistent data directory}:/data"]
     environment:
+      IRIS_ALERT_CHANNEL: "${IRIS_ALERT_CHANNEL:-openwa}"
+      IRIS_ALERT_RECIPIENTS: "${IRIS_ALERT_RECIPIENTS:-}"
+      IRIS_TELEGRAM_BOT_TOKEN: "${IRIS_TELEGRAM_BOT_TOKEN:-}"
+      IRIS_TELEGRAM_CHAT_ID: "${IRIS_TELEGRAM_CHAT_ID:-}"
+      IRIS_GREENAPI_API_URL: "${IRIS_GREENAPI_API_URL:-}"
+      IRIS_GREENAPI_MEDIA_URL: "${IRIS_GREENAPI_MEDIA_URL:-}"
+      IRIS_GREENAPI_INSTANCE_ID: "${IRIS_GREENAPI_INSTANCE_ID:-}"
+      IRIS_GREENAPI_TOKEN: "${IRIS_GREENAPI_TOKEN:-}"
+      IRIS_SMTP_HOST: "${IRIS_SMTP_HOST:-}"
+      IRIS_SMTP_PORT: "${IRIS_SMTP_PORT:-587}"
+      IRIS_SMTP_TLS: "${IRIS_SMTP_TLS:-starttls}"
+      IRIS_SMTP_USERNAME: "${IRIS_SMTP_USERNAME:-}"
+      IRIS_SMTP_PASSWORD: "${IRIS_SMTP_PASSWORD:-}"
+      IRIS_SMTP_SENDER: "${IRIS_SMTP_SENDER:-}"
       IRIS_SECRET_KEY: ${IRIS_SECRET_KEY:?required}
       IRIS_ADMIN_USERNAME: ${IRIS_ADMIN_USERNAME:-admin}
       IRIS_ADMIN_PASSWORD: ${IRIS_ADMIN_PASSWORD:?required}
       OPENWA_URL: ${OPENWA_URL:-}
       OPENWA_API_KEY: ${OPENWA_API_KEY:-}
+      IRIS_OPENWA_ARCHIVE_ENABLED: "${OPENWA_MEDIA_ARCHIVE_ENABLED:-false}"
+      IRIS_OPENWA_ARCHIVE_OUTBOUND: "${OPENWA_MEDIA_ARCHIVE_OUTBOUND:-false}"
+      IRIS_OPENWA_ARCHIVE_TTL_DAYS: "${OPENWA_MEDIA_ARCHIVE_TTL_DAYS:-0}"
+      IRIS_OPENWA_MEDIA_TIMEOUT_SECONDS: "${OPENWA_MEDIA_TIMEOUT_SECONDS:-60}"
       IRIS_PUBLIC_BASE_URL: ${IRIS_PUBLIC_BASE_URL:?required}
       IRIS_METRICS_TOKEN: ${IRIS_METRICS_TOKEN:?required}
       IRIS_CLASSIFICATION_PROVIDER: ${IRIS_CLASSIFICATION_PROVIDER:-openai}
@@ -36,6 +54,15 @@ services:
       IRIS_FORWARDED_ALLOW_IPS: ${IRIS_FORWARDED_ALLOW_IPS:-127.0.0.1}
     extra_hosts: ["host.docker.internal:host-gateway"]
     restart: unless-stopped
+    depends_on:
+      openwa:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     pids_limit: 256
@@ -52,6 +79,13 @@ services:
     volumes: ["${OPENWA_DATA_PATH:?Set a persistent session directory}:/app/data"]
     environment:
       NODE_ENV: production
+      CHAT_MEDIA_ARCHIVE_ENABLED: "${OPENWA_MEDIA_ARCHIVE_ENABLED:-false}"
+      CHAT_MEDIA_ARCHIVE_OUTBOUND: "${OPENWA_MEDIA_ARCHIVE_OUTBOUND:-false}"
+      CHAT_MEDIA_ARCHIVE_TTL_DAYS: "${OPENWA_MEDIA_ARCHIVE_TTL_DAYS:-0}"
+      MEDIA_DOWNLOAD_ENABLED: "true"
+      MEDIA_DOWNLOAD_TIMEOUT_MS: "${OPENWA_MEDIA_DOWNLOAD_TIMEOUT_MS:-60000}"
+      INBOUND_MEDIA_CONCURRENCY: "${OPENWA_MEDIA_CONCURRENCY:-2}"
+      PUPPETEER_PROTOCOL_TIMEOUT_MS: "${OPENWA_PROTOCOL_TIMEOUT_MS:-120000}"
       ENABLE_SWAGGER: "false"
       WEBHOOK_SSRF_PROTECT: "true"
       SSRF_ALLOWED_HOSTS: iris
@@ -59,7 +93,18 @@ services:
       HOME: /tmp
     restart: unless-stopped
     tmpfs: [/tmp]
+    read_only: true
     security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, KILL, SETGID, SETUID]
+    pids_limit: 2048
+    stop_grace_period: 45s
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:2785/api/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
     mem_limit: 2g
     labels:
       com.centurylinklabs.watchtower.enable: ${OPENWA_AUTO_UPDATE:-false}

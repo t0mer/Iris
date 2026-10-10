@@ -1,3 +1,4 @@
+import { t, useLanguage } from '../../lib/i18n'
 import * as AlertPrimitive from '@radix-ui/react-alert-dialog'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
@@ -23,10 +24,12 @@ export function DialogContent({
   children: ReactNode
   className?: string
 }) {
+  const { dir } = useLanguage()
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className={overlay} />
       <DialogPrimitive.Content
+        dir={dir}
         {...(description ? {} : { 'aria-describedby': undefined })}
         className={cn(
           'fixed inset-x-0 bottom-0 z-50 flex max-h-[88dvh] flex-col gap-4 overflow-y-auto rounded-t-xl border border-border bg-surface p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-overlay',
@@ -36,15 +39,17 @@ export function DialogContent({
       >
         <div className="flex items-start justify-between gap-4">
           <div className="flex flex-col gap-1">
-            <DialogPrimitive.Title className="text-lg font-semibold">{title}</DialogPrimitive.Title>
+            <DialogPrimitive.Title className="text-lg font-semibold">
+              {t(title)}
+            </DialogPrimitive.Title>
             {description && (
               <DialogPrimitive.Description className="text-sm text-muted-foreground">
-                {description}
+                {t(description)}
               </DialogPrimitive.Description>
             )}
           </div>
           <DialogPrimitive.Close asChild>
-            <Button variant="ghost" size="icon" aria-label="Close" className="-me-2 -mt-2">
+            <Button variant="ghost" size="icon" aria-label={t('Close')} className="-me-2 -mt-2">
               <X />
             </Button>
           </DialogPrimitive.Close>
@@ -79,6 +84,7 @@ export function ConfirmDialog({
   pending?: boolean
   keepOpen?: boolean
 }) {
+  const { dir } = useLanguage()
   const [open, setOpen] = useState(false)
   return (
     <AlertPrimitive.Root
@@ -92,16 +98,19 @@ export function ConfirmDialog({
       <AlertPrimitive.Trigger asChild>{trigger}</AlertPrimitive.Trigger>
       <AlertPrimitive.Portal>
         <AlertPrimitive.Overlay className={overlay} />
-        <AlertPrimitive.Content className="fixed left-1/2 top-1/2 z-50 flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-lg border border-border bg-surface p-5 shadow-overlay">
-          <AlertPrimitive.Title className="text-lg font-semibold">{title}</AlertPrimitive.Title>
+        <AlertPrimitive.Content
+          dir={dir}
+          className="fixed left-1/2 top-1/2 z-50 flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-lg border border-border bg-surface p-5 shadow-overlay"
+        >
+          <AlertPrimitive.Title className="text-lg font-semibold">{t(title)}</AlertPrimitive.Title>
           <AlertPrimitive.Description className="text-sm text-muted-foreground">
-            {description}
+            {t(description)}
           </AlertPrimitive.Description>
           {children}
           <div className="flex flex-wrap justify-end gap-2">
             <AlertPrimitive.Cancel asChild>
               <Button variant="outline" disabled={pending}>
-                Cancel
+                {t('Cancel')}
               </Button>
             </AlertPrimitive.Cancel>
             <AlertPrimitive.Action asChild>
@@ -119,7 +128,7 @@ export function ConfirmDialog({
                   }
                 }}
               >
-                {confirmLabel}
+                {t(confirmLabel)}
               </Button>
             </AlertPrimitive.Action>
           </div>

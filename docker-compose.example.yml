@@ -1,15 +1,33 @@
 services:
   iris:
-    image: techblog/iris:latest
+    image: ${IRIS_IMAGE:?Set IRIS_IMAGE to a reviewed release tag or digest}
     ports: ["8080:8080"]
     volumes:
       - iris-data:/data   # SQLite DB + temp media; named volume keeps non-root ownership
     environment:
+      IRIS_ALERT_CHANNEL: "${IRIS_ALERT_CHANNEL:-openwa}"
+      IRIS_ALERT_RECIPIENTS: "${IRIS_ALERT_RECIPIENTS:-}"
+      IRIS_TELEGRAM_BOT_TOKEN: "${IRIS_TELEGRAM_BOT_TOKEN:-}"
+      IRIS_TELEGRAM_CHAT_ID: "${IRIS_TELEGRAM_CHAT_ID:-}"
+      IRIS_GREENAPI_API_URL: "${IRIS_GREENAPI_API_URL:-}"
+      IRIS_GREENAPI_MEDIA_URL: "${IRIS_GREENAPI_MEDIA_URL:-}"
+      IRIS_GREENAPI_INSTANCE_ID: "${IRIS_GREENAPI_INSTANCE_ID:-}"
+      IRIS_GREENAPI_TOKEN: "${IRIS_GREENAPI_TOKEN:-}"
+      IRIS_SMTP_HOST: "${IRIS_SMTP_HOST:-}"
+      IRIS_SMTP_PORT: "${IRIS_SMTP_PORT:-587}"
+      IRIS_SMTP_TLS: "${IRIS_SMTP_TLS:-starttls}"
+      IRIS_SMTP_USERNAME: "${IRIS_SMTP_USERNAME:-}"
+      IRIS_SMTP_PASSWORD: "${IRIS_SMTP_PASSWORD:-}"
+      IRIS_SMTP_SENDER: "${IRIS_SMTP_SENDER:-}"
       IRIS_SECRET_KEY: ""            # openssl rand -base64 32
       IRIS_ADMIN_USERNAME: admin     # first run only
       IRIS_ADMIN_PASSWORD: ""        # first run only
       # OpenWA must be able to reach this URL, it is where kids' webhooks point.
-      IRIS_PUBLIC_BASE_URL: http://10.0.0.20:8080
+      # Public Iris domain; can also be overridden in Settings > Notifications > Iris base URL.
+      # Optional separate internal URL reachable from OpenWA and permitted by its allowlist.
+      IRIS_TWO_FACTOR_RECOVERY_KEY: "${IRIS_TWO_FACTOR_RECOVERY_KEY:-}"
+      IRIS_WEBHOOK_BASE_URL: "${IRIS_WEBHOOK_BASE_URL:-}"
+      IRIS_PUBLIC_BASE_URL: https://iris.example.com
       IRIS_LOG_LEVEL: INFO
       # Optional: keep the data in PostgreSQL or MySQL instead of the SQLite file. Create an empty
       # database first. Without this, choose the database under Settings > Database instead.

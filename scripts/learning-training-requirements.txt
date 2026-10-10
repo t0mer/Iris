@@ -1,0 +1,5 @@
+# Optional isolated training environment; not installed into the Iris runtime.
+torch
+transformers
+peft
+accelerate

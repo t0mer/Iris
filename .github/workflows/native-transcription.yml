@@ -21,4 +21,13 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - run: uv venv --python 3.12 .venv
       - run: uv pip sync requirements.lock --python .venv/bin/python
-      - run: .venv/bin/python -m pytest test_api.py -q
+      - run: .venv/bin/python -m pytest tests -q --junitxml=.local/test-results/native-api.xml
+      - name: Save companion test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-transcription
+          path: docker-compose/local/macos/.local/test-results/*.xml
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14

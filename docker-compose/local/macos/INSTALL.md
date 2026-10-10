@@ -103,7 +103,9 @@ Extract the sanitized installation bundle. In Terminal, change into the extracte
 API_ROOT="$HOME/Library/Application Support/MilaAPI"
 mkdir -p "$API_ROOT"
 chmod 700 "$API_ROOT"
-cp app.py test_api.py requirements.lock configure.py verify.py LICENSE LICENSES.md "$API_ROOT/"
+cp app.py pytest.ini requirements.lock configure.py verify.py LICENSE LICENSES.md "$API_ROOT/"
+mkdir -p "$API_ROOT/tests"
+cp tests/test_api.py "$API_ROOT/tests/"
 /opt/homebrew/bin/python3.12 -m venv "$API_ROOT/.venv"
 /opt/homebrew/bin/uv pip install \
   --python "$API_ROOT/.venv/bin/python" \
@@ -252,7 +254,7 @@ The request needs `file`; `response_format` can be `json`, `verbose_json` or `te
 
 The API limits files to 25 MiB and audio to 5 minutes. Iris extracts video audio to MP3 before calling this API; this path has been verified. Direct MP4 upload returned HTTP 422 in the live reference check, so do not rely on direct video uploads without validating your installation. Video frames are not inspected. It allows one running request and one additional waiting request. Larger bursts get HTTP 429 and should retry.
 
-**Stock Iris needs a local-provider code change.** It hardcodes cloud transcription URLs, so environment variables alone do not connect it to this service. Its adapter must upload to the configured local endpoint, add the Bearer key and validate the response. Failed, empty or malformed transcription must remain failed or require review, never be treated as safe. This bundle installs the transcription API; it does not install or patch Iris or OpenWA.
+**Iris supports the local transcription provider.** Configure `local_whisper` and `IRIS_WHISPER_URL` with this service's endpoint and Bearer key. Failed, empty or malformed transcription remains failed or requires review. This bundle installs the transcription API; it does not install Iris or OpenWA.
 
 ## 10 Keep idle resource use low
 
@@ -308,7 +310,7 @@ The API does not log transcripts or API keys. Diagnostic logs still belong in a 
 
 ## License files and bounded logs
 
-The companion source files are [app.py](app.py), [configure.py](configure.py), [verify.py](verify.py), [test_api.py](test_api.py) and [requirements.lock](requirements.lock). Keep [LICENSE](LICENSE) and [LICENSES.md](LICENSES.md) alongside them.
+The companion source files are [app.py](app.py), [configure.py](configure.py), [verify.py](verify.py), [tests/test_api.py](tests/test_api.py) and [requirements.lock](requirements.lock). Keep [LICENSE](LICENSE) and [LICENSES.md](LICENSES.md) alongside them.
 
 The updated API rotates `logs/api.log` at 10 MiB, retaining five older files. launchd redirects bootstrap stdout/stderr to `/dev/null`; if startup fails before logging initializes, stop the agent and run the API in Terminal using its private `MILA_API_CONFIG` to diagnose it, then restart the agent. The API does not log transcripts or credentials.
 

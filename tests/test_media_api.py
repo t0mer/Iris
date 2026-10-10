@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 import respx
 from sqlalchemy import update
 
@@ -139,7 +140,8 @@ async def test_stats_count_what_is_kept(app_client: Any) -> None:
 
 
 @respx.mock
-async def test_the_whatsapp_alert_carries_the_media_link(app_client: Any) -> None:
+@pytest.mark.parametrize("summary", [False, True])
+async def test_the_whatsapp_alert_carries_the_media_link(app_client: Any, summary: bool) -> None:
     import json
 
     import httpx
@@ -148,6 +150,11 @@ async def test_the_whatsapp_alert_carries_the_media_link(app_client: Any) -> Non
     from tests.test_alerts import setup as alert_setup
 
     deps, token, _ = await alert_setup(app_client)
+    response = await app_client.put(
+        "/api/settings",
+        json={"settings": {"alerts.notification_style": "summary" if summary else "detailed"}},
+    )
+    assert response.status_code == 200
     await policy(app_client, "harmful")
     serve("image.png", "image/png")
     moderate(violence=0.9)
@@ -156,6 +163,10 @@ async def test_the_whatsapp_alert_carries_the_media_link(app_client: Any) -> Non
     await run_all(deps)
     (row,) = await rows(app_client)
     text = json.loads(send.calls.last.request.content)["text"]
+    if summary:
+        assert f"/media/{row.id}" not in text and "Media kept" not in text
+        assert "/alerts/" in text
+        return
     assert f"/media/{row.id}" in text and "📎 Media kept (image," in text
     assert text.index("📎") < text.index("Open:")
 
@@ -170,6 +181,10 @@ async def test_a_withheld_message_alert_has_no_media_line(app_client: Any) -> No
     from tests.test_alerts import setup as alert_setup
 
     deps, token, _ = await alert_setup(app_client)
+    response = await app_client.put(
+        "/api/settings", json={"settings": {"alerts.notification_style": "detailed"}}
+    )
+    assert response.status_code == 200
     await policy(app_client, "all")
     serve("image.png", "image/png")
     moderate(**{"sexual/minors": 0.9})

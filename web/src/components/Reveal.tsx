@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { Eye, EyeOff } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Button } from './ui/button'
@@ -18,16 +19,21 @@ export function RevealButton({
   className?: string
 }) {
   const Icon = revealed ? EyeOff : Eye
+  label = t(label)
   return (
     <Button
       type="button"
       variant="outline"
       size="sm"
-      aria-label={context ? `${revealed ? 'Hide' : 'Show'} ${label}, ${context}` : undefined}
+      title={
+        revealed ? t('Hide {value0}', { value0: label }) : t('Show {value0}', { value0: label })
+      }
+      aria-label={context ? `${revealed ? t('Hide') : t('Show')} ${label}, ${context}` : undefined}
       onClick={onToggle}
       className={className}
     >
-      <Icon /> {revealed ? `Hide ${label}` : `Show ${label}`}
+      <Icon />{' '}
+      {revealed ? t('Hide {value0}', { value0: label }) : t('Show {value0}', { value0: label })}
     </Button>
   )
 }
@@ -42,7 +48,7 @@ export function Masked({ length = 24 }: { length?: number }) {
       <span aria-hidden className="select-none blur-[3px]">
         {mask}
       </span>
-      <span className="sr-only">Content hidden</span>
+      <span className="sr-only">{t('Content hidden')}</span>
     </>
   )
 }

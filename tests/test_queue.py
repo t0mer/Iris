@@ -145,3 +145,51 @@ async def test_has_active_job_blocks_duplicate_retry(
         await queue.enqueue(db, "process_message", {"message_id": 7})
         assert await queue.has_active_job(db, 7) and not await queue.has_active_job(db, 8)
         assert await queue.retry_job(db, dead) is False  # a queued job for message 7 exists
+
+
+async def test_old_attempt_cannot_ack_or_fail_recovered_job(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    jid = await _job(factory)
+    old = await queue.claim(factory)
+    assert old
+    async with factory() as db:
+        await db.execute(update(Job).where(Job.id == jid).values(status="queued"))
+        await db.commit()
+    replacement = await queue.claim(factory)
+    assert replacement and replacement.attempts == 2
+    await queue.ack(factory, old.id, old.attempts)
+    assert await queue.fail(factory, old, "old failure", transient=False) == "running"
+    current = await _status(factory, jid)
+    assert current.status == "running" and current.attempts == 2 and current.last_error is None
+    await queue.ack(factory, replacement.id, replacement.attempts)
+    assert (await _status(factory, jid)).status == "done"
+
+
+@pytest.mark.parametrize("kind", ["deliver_alert", "notify_change"])
+async def test_stale_delivery_requires_manual_retry(
+    factory: async_sessionmaker[AsyncSession], kind: str
+) -> None:
+    async with factory() as db:
+        jid = await queue.enqueue(db, kind, {})
+    assert await queue.claim(factory)
+    async with factory() as db:
+        await db.execute(update(Job).where(Job.id == jid).values(locked_at=datetime(2000, 1, 1)))
+        await db.commit()
+    assert await queue.recover_stale(factory) == 1
+    job = await _status(factory, jid)
+    assert job.status == "failed" and job.payload["delivery_uncertain"]
+    assert "uncertain" in (job.last_error or "")
+    assert await queue.claim(factory) is None
+
+
+async def test_uncertain_timeout_is_durable(factory: async_sessionmaker[AsyncSession]) -> None:
+    async with factory() as db:
+        jid = await queue.enqueue(db, "notify_change", {})
+    job = await queue.claim(factory)
+    assert job
+    assert (
+        await queue.fail(factory, job, "timed out", transient=False, uncertain_delivery=True)
+        == "failed"
+    )
+    assert (await _status(factory, jid)).payload["delivery_uncertain"]

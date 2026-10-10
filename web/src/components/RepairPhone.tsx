@@ -1,7 +1,8 @@
+import { t } from '../lib/i18n'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { LoaderCircle } from 'lucide-react'
-import { toast } from 'sonner'
+import { toast } from '../lib/notify'
 import { api } from '../lib/api'
 import type { Instance } from '../lib/types'
 import { Dialog, DialogTrigger, DialogContent } from './ui/dialog'
@@ -55,13 +56,15 @@ export function RepairPhone({
         qc.invalidateQueries({ queryKey: ['stats'] }),
       ])
       if (current.current) {
-        toast.success(`${phone.kid_name} reconnected.`)
+        toast.success(t('{value0} reconnected.', { value0: phone.kid_name }))
         setOpen(false)
       }
     } catch (error) {
       setFinishError(
-        error instanceof Error ? error.message : 'Webhook registration failed. Retry below.',
+        'WhatsApp connected successfully, but monitoring setup failed. ' +
+          (error instanceof Error ? error.message : 'Retry restoring monitoring below.'),
       )
+      await qc.invalidateQueries({ queryKey: ['instances'] })
     } finally {
       setFinishing(false)
     }
@@ -88,38 +91,50 @@ export function RepairPhone({
         setOpen(value)
       }}
     >
-      <DialogTrigger asChild>
-        <Button variant="outline">Re-pair WhatsApp</Button>
-      </DialogTrigger>
+      {phone.connection_status !== 'ready' && (
+        <DialogTrigger asChild>
+          <Button variant="outline">{t('Re-pair WhatsApp')}</Button>
+        </DialogTrigger>
+      )}
       <DialogContent
-        title={`Re-pair ${phone.kid_name}`}
-        description="Reconnect the existing WhatsApp session. Closing this window never deletes your phone or session."
+        title={
+          check.data?.status === 'ready'
+            ? t('{value0} connected', { value0: phone.kid_name })
+            : t('Re-pair {value0}', { value0: phone.kid_name })
+        }
+        description={t(
+          'Reconnect the existing WhatsApp session. Closing this window never deletes your phone or session.',
+        )}
       >
-        {check.data?.qr && !check.isError && (
-          <img
-            alt="WhatsApp re-pairing QR code"
-            src={check.data.qr}
-            className="mx-auto aspect-square w-full max-w-64 rounded-md bg-white p-2"
-            onError={() => void check.refetch()}
+        {open && check.data?.status !== 'ready' && (
+          <iframe
+            title={t('WhatsApp QR code')}
+            src={`/pairing/qr/${phone.id}`}
+            className="h-[27rem] w-full rounded-lg border bg-surface"
+            referrerPolicy="no-referrer"
           />
         )}
         <p role="status" className="flex items-center gap-2">
-          {!check.data?.qr && !check.isError && (
+          {!check.data?.qr && !check.isError && check.data?.status !== 'ready' && (
             <LoaderCircle aria-hidden className="size-5 animate-spin" />
           )}
           {finishing
-            ? 'Connected. Restoring monitoring…'
-            : check.data?.status === 'authenticating'
-              ? 'Scan received. Confirming WhatsApp connection…'
-              : check.data?.qr
-                ? 'WhatsApp → Linked devices → Link a device. QR changes update automatically.'
-                : check.isError
-                  ? 'Connection check failed.'
-                  : 'Checking the existing session and waiting for OpenWA to provide a QR…'}
+            ? t('Connected. Restoring monitoring…')
+            : check.data?.status === 'ready'
+              ? finishError
+                ? t('WhatsApp connected. Monitoring setup needs attention.')
+                : t('WhatsApp connected.')
+              : check.data?.status === 'authenticating'
+                ? t('Scan received. Confirming WhatsApp connection…')
+                : check.data?.qr
+                  ? t('WhatsApp → Linked devices → Link a device. QR changes update automatically.')
+                  : check.isError
+                    ? t('Connection check failed.')
+                    : t('Checking the existing session and waiting for OpenWA to provide a QR…')}
         </p>
         {check.isError && (
           <p role="alert" className="text-sm text-danger">
-            {check.error instanceof Error ? check.error.message : 'OpenWA unavailable'}
+            {check.error instanceof Error ? check.error.message : t('OpenWA unavailable')}
           </p>
         )}
         {finishError && (
@@ -128,12 +143,14 @@ export function RepairPhone({
               {finishError}
             </p>
             <Button disabled={finishing} onClick={() => void finish()}>
-              Retry restoring monitoring
+              {t('Retry restoring monitoring')}
             </Button>
           </>
         )}
         <Button onClick={() => void check.refetch()} disabled={check.isFetching || finishing}>
-          Refresh QR / check connection
+          {check.data?.status === 'ready'
+            ? t('Check connection')
+            : t('Refresh QR / check connection')}
         </Button>
       </DialogContent>
     </Dialog>

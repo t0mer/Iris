@@ -13,6 +13,18 @@ def recipients(value: str | None) -> list[str]:
         entry = entry.strip()
         if not entry:
             continue
+        if entry.startswith("email:") or (
+            "@" in entry and not entry.endswith(("@c.us", "@g.us", "@s.whatsapp.net"))
+        ):
+            from app.security.two_factor import email_address
+
+            address = email_address(entry.removeprefix("email:"))
+            if not address:
+                raise ValueError("Enter a parent email address")
+            canonical = "email:" + address.lower()
+            if canonical not in result:
+                result.append(canonical)
+            continue
         if "@" not in entry:
             entry = re.sub(r"[\s()-]", "", entry).lstrip("+")
             if not re.fullmatch(r"\d{6,15}", entry):

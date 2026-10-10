@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { LoaderCircle } from 'lucide-react'
 import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { api } from '../lib/api'
@@ -169,14 +170,7 @@ export function PhonePairing({
     setBusy(true)
     update(current.current ? { ...current.current, qr: null, status: 'canceling' } : null)
     try {
-      const response = await fetch(`/api/pairing/${token.current}`, {
-        method: 'DELETE',
-        credentials: 'same-origin',
-      })
-      if (!response.ok)
-        throw new Error(
-          'Cleanup is waiting for OpenWA. It will retry automatically; you can retry here too.',
-        )
+      await api(`/api/pairing/${token.current}`, { method: 'DELETE' })
       token.current = null
       update(null)
       setError('')
@@ -189,17 +183,18 @@ export function PhonePairing({
 
   return (
     <section className="flex flex-col gap-3 rounded-md border bg-surface-2 p-3">
-      <h3 className="font-semibold">Pair a new phone with QR</h3>
+      <h3 className="font-semibold">{t('Pair a new phone with QR')}</h3>
       <p className="text-sm text-muted-foreground">
-        Get the QR code and link WhatsApp first. You can add an optional name after pairing. Iris
-        uses the server’s configured OpenWA connection.
+        {t(
+          'Get the QR code and link WhatsApp first. You can add an optional name after pairing. Iris uses the server’s configured OpenWA connection.',
+        )}
       </p>
       {!state?.token && (
         <Button
           onClick={() => void start()}
           disabled={busy || (name === undefined && (!url || !apiKey))}
         >
-          {busy ? 'Connecting to OpenWA…' : 'Get pairing QR'}
+          {busy ? t('Connecting to OpenWA…') : t('Get pairing QR')}
         </Button>
       )}
       {waiting && (
@@ -211,22 +206,24 @@ export function PhonePairing({
             />
             <span>
               {state?.status === 'starting'
-                ? 'Pairing started. Creating and starting your OpenWA session…'
+                ? t('Pairing started. Creating and starting your OpenWA session…')
                 : state?.status === 'authenticating'
-                  ? 'Scan received. Waiting for WhatsApp to confirm the connection…'
+                  ? t('Scan received. Waiting for WhatsApp to confirm the connection…')
                   : state?.status === 'initializing'
-                    ? 'OpenWA is starting WhatsApp. Waiting for the QR code…'
-                    : 'Session started. Waiting for OpenWA to generate a QR code…'}
+                    ? t('OpenWA is starting WhatsApp. Waiting for the QR code…')
+                    : t('Session started. Waiting for OpenWA to generate a QR code…')}
             </span>
           </div>
-          <progress aria-label="Waiting for WhatsApp pairing" className="h-2 w-full" />
+          <progress aria-label={t('Waiting for WhatsApp pairing')} className="h-2 w-full" />
           <p className="text-xs text-muted-foreground">
-            Elapsed: {elapsed}s. Iris checks for updates every 2 seconds.
+            {t('Elapsed:')} {elapsed}
+            {t('s. Iris checks for updates every 2 seconds.')}
           </p>
           {elapsed >= 20 && (
             <p className="text-sm text-muted-foreground">
-              OpenWA is taking longer to respond. Keep this window open; the QR will appear
-              automatically when available.
+              {t(
+                'OpenWA is taking longer to respond. Keep this window open; the QR will appear automatically when available.',
+              )}
             </p>
           )}
         </div>
@@ -247,20 +244,20 @@ export function PhonePairing({
           {!waiting && (
             <p role="status">
               {state.status === 'ready'
-                ? 'WhatsApp connected. Iris is saving this phone automatically.'
+                ? t('WhatsApp connected. Iris is saving this phone automatically.')
                 : state.status === 'qr_ready'
-                  ? 'WhatsApp → Linked devices → Link a device. QR refreshes automatically.'
+                  ? t('WhatsApp → Linked devices → Link a device. QR refreshes automatically.')
                   : state.status === 'error'
-                    ? 'OpenWA unavailable. The QR has been removed.'
-                    : 'Waiting for OpenWA to provide a fresh QR or confirm the connection…'}
+                    ? t('OpenWA unavailable. The QR has been removed.')
+                    : t('Waiting for OpenWA to provide a fresh QR or confirm the connection…')}
             </p>
           )}
           <div className="flex flex-wrap gap-2">
             <Button onClick={() => void poll(true)} disabled={busy || state.status === 'ready'}>
-              Refresh QR
+              {t('Refresh QR')}
             </Button>
             <Button onClick={() => void cancel()} disabled={busy}>
-              Cancel pairing
+              {t('Cancel pairing')}
             </Button>
           </div>
         </>
@@ -271,9 +268,9 @@ export function PhonePairing({
         </p>
       )}
       <p className="text-xs text-muted-foreground">
-        Closing before pairing is saved removes the temporary OpenWA session. After Iris saves the
-        paired phone, closing the optional name step keeps the connection. If a connection is lost,
-        server cleanup retries after the pairing lease expires. Existing sessions are never removed.
+        {t(
+          'Closing before pairing is saved removes the temporary OpenWA session. After Iris saves the paired phone, closing the optional name step keeps the connection. If a connection is lost, server cleanup retries after the pairing lease expires. Existing sessions are never removed.',
+        )}
       </p>
     </section>
   )

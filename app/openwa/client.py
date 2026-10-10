@@ -1,6 +1,9 @@
 """Thin OpenWA REST client (X-API-Key auth). Keep all OpenWA endpoint shapes here."""
 
 import asyncio
+import base64
+import binascii
+import json
 import time
 from pathlib import Path
 from typing import Any
@@ -69,7 +72,9 @@ class OpenWAClient:
         body = data.get("data", data) if isinstance(data, dict) else {}
         return isinstance(body, dict) and str(body.get("status", "")).lower() == "ready"
 
-    async def register_webhook(self, session_id: str, url: str, secret: str) -> str:
+    async def register_webhook(
+        self, session_id: str, url: str, secret: str, retry_count: int = 3
+    ) -> str:
         """Subscribe the session's webhook for `url` to Iris's events and return its id.
 
         A webhook already pointing at `url` is updated (its existing events are kept), so running
@@ -92,16 +97,59 @@ class OpenWAClient:
             await self._request(
                 "PUT",
                 f"{base}/{quote(str(existing['id']), safe='')}",
-                json={"events": events, "secret": secret},
+                json={"events": events, "secret": secret, "retryCount": retry_count},
             )
             return str(existing["id"])
         data = await self._request(
             "POST",
             base,
-            json={"url": url, "events": WEBHOOK_EVENTS, "secret": secret, "retryCount": 3},
+            json={
+                "url": url,
+                "events": WEBHOOK_EVENTS,
+                "secret": secret,
+                "retryCount": retry_count,
+            },
         )
         body = data.get("data", data) if isinstance(data, dict) else {}
         return str(body.get("id", ""))
+
+    async def set_webhook_retries(self, session_id: str, url: str, attempts: int) -> int:
+        base = f"/api/sessions/{quote(session_id, safe='')}/webhooks"
+        data = await self._request("GET", base)
+        rows = data.get("data", data) if isinstance(data, dict) else data
+        if not isinstance(rows, list):
+            raise OpenWAError(502, "Invalid webhook list")
+        changed = 0
+        for row in rows:
+            if (
+                isinstance(row, dict)
+                and row.get("url") == url
+                and row.get("id")
+                and row.get("retryCount") != attempts
+            ):
+                await self._request(
+                    "PUT", f"{base}/{quote(str(row['id']), safe='')}", json={"retryCount": attempts}
+                )
+                changed += 1
+        return changed
+
+    async def stored_messages(
+        self, session_id: str, after: str | None = None
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"limit": 100, "inlineMedia": "false"}
+        if after:
+            params["after"] = after
+        data = await self._request(
+            "GET", f"/api/sessions/{quote(session_id, safe='')}/messages", params=params
+        )
+        rows = data.get("messages") if isinstance(data, dict) else None
+        if (
+            not isinstance(rows, list)
+            or len(rows) > 100
+            or any(not isinstance(r, dict) for r in rows)
+        ):
+            raise OpenWAError(502, "Invalid stored-message page")
+        return rows
 
     async def get_group_name(self, session_id: str, group_id: str) -> str | None:
         """The group's subject from `GET /api/sessions/{id}/groups/{groupId}` (None if unnamed)."""
@@ -155,3 +203,53 @@ class OpenWAClient:
         except MediaTooLarge:
             await asyncio.to_thread(dest.unlink, True)
             raise
+
+    async def recover_media(
+        self, session_id: str, chat_id: str, message_ref: str, dest: Path, max_bytes: int
+    ) -> str:
+        """Recover only the exact message from a bounded recent-history request.
+
+        No external media URL is followed, and no other message is written to disk.
+        OpenWA caps the history media budget at 25 MB by default.
+        """
+        path = (
+            f"/api/sessions/{quote(session_id, safe='')}/messages/{quote(chat_id, safe='')}/history"
+        )
+        ceiling = min(max_bytes, 25 * 1024 * 1024)
+        body_limit = 36 * 1024 * 1024
+        try:
+            async with asyncio.timeout(65):
+                async with self._client.stream(
+                    "GET", path, params={"limit": 10, "includeMedia": "true"}, timeout=65
+                ) as response:
+                    if response.status_code >= 400:
+                        raise OpenWAError(response.status_code, "Media recovery unavailable")
+                    body = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        if len(body) + len(chunk) > body_limit:
+                            raise MediaTooLarge(len(body) + len(chunk))
+                        body.extend(chunk)
+            rows = json.loads(body)
+            if not isinstance(rows, list) or len(rows) > 10:
+                raise OpenWAError(502, "Invalid media recovery response")
+            for row in rows:
+                if not isinstance(row, dict) or row.get("id") != message_ref:
+                    continue
+                media = row.get("media")
+                if not isinstance(media, dict) or media.get("omitted"):
+                    break
+                data, mimetype = media.get("data"), media.get("mimetype")
+                if not isinstance(data, str) or not isinstance(mimetype, str) or not data:
+                    break
+                if len(data) > ((ceiling + 2) // 3) * 4:
+                    raise MediaTooLarge(len(data) * 3 // 4)
+                decoded = base64.b64decode(data, validate=True)
+                if len(decoded) > ceiling:
+                    raise MediaTooLarge(len(decoded))
+                await asyncio.to_thread(dest.write_bytes, decoded)
+                return mimetype
+            raise OpenWAError(404, "Original media is no longer available")
+        except (httpx.HTTPError, TimeoutError) as exc:
+            raise OpenWAError(None, "Media recovery timed out or connection failed") from exc
+        except (ValueError, binascii.Error) as exc:
+            raise OpenWAError(502, "Invalid media recovery response") from exc

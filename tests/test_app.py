@@ -7,6 +7,7 @@ import pytest
 from app import main
 from app.config import get_settings
 from app.db.migrate import upgrade_head
+from app.version import VERSION
 
 
 @pytest.fixture
@@ -28,7 +29,7 @@ async def client(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[httpx.AsyncCl
 async def test_health_and_version(client: httpx.AsyncClient) -> None:
     r = await client.get("/api/health")
     assert r.status_code == 200 and r.json()["status"] == "ok"
-    assert (await client.get("/api/version")).json() == {"version": "dev"}
+    assert (await client.get("/api/version")).json() == {"version": VERSION}
 
 
 async def test_security_headers(client: httpx.AsyncClient) -> None:
@@ -59,8 +60,19 @@ async def test_spa_fallback(
     monkeypatch.setattr(main, "STATIC_DIR", tmp_path)
     r = await client.get("/alerts/3")
     assert r.status_code == 200 and "iris" in r.text
+    assert r.headers["cache-control"] == "no-store"
+    assert (await client.get("/assets/obsolete-page.js")).status_code == 404
     assert (await client.get("/../../etc/passwd")).status_code in (200, 404)
 
 
 async def test_nul_byte_path_is_404(client: httpx.AsyncClient) -> None:
     assert (await client.get("/a%00b")).status_code in (200, 404)
+
+
+async def test_only_qr_viewer_can_be_framed_by_iris(client: httpx.AsyncClient) -> None:
+    frame = await client.get("/pairing/qr/6")
+    assert frame.headers["x-frame-options"] == "SAMEORIGIN"
+    assert "frame-ancestors 'self'" in frame.headers["content-security-policy"]
+    assert frame.headers["cache-control"] == "no-store"
+    normal = await client.get("/settings")
+    assert normal.headers["x-frame-options"] == "DENY"

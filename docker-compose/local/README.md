@@ -30,6 +30,16 @@ Automatic pairing is available only when both `OPENWA_URL` and `OPENWA_API_KEY` 
 
 ## Beta status
 
-This optional integration is a beta contribution for evaluation. The example image is built with version `local-providers-beta.1`. It does not publish or replace upstream's stable image. Complete Linux/database CI, real monitoring-to-alert delivery, model calibration and deployment security checks remain validation gates. Keep deployment credentials and private data outside Git.
+This optional integration is a beta contribution for evaluation. The example image is built with version `2026.10.0-beta.8`. It does not publish or replace upstream's stable image. Complete Linux/database CI, real monitoring-to-alert delivery, model calibration and deployment security checks remain validation gates. Keep deployment credentials and private data outside Git.
+
+## Notifications and storage
+
+Settings → Notifications combines parent alert recipients, child assignments and provider setup. OpenWA is the default alert channel; Telegram supports individual or group chat IDs, SMTP supports email-only recipients, and GreenAPI supports contacts and WhatsApp groups. Each parent receives all children by default; selecting children narrows their alerts, and an empty selection pauses that recipient. Environment examples provide optional initial provider credentials. Saved portal settings take precedence; upgrades do not send test notifications automatically.
+
+Settings → Users → Two-factor authentication owns the preferred sign-in code channel. The selector appears only after tested SMTP/GreenAPI providers and approved contacts make every user ready. Sign-in uses a channel available to the individual account. Telegram and OpenWA alert destinations are separate from sign-in verification.
+
+Home can filter activity by child and period and shows alerts per group/contact, missing saved media and separate Iris/OpenWA storage usage. Iris storage is measured from its data directory. To measure OpenWA, optionally mount the provider data read-only and set `IRIS_OPENWA_DATA_DIR` to that mount. If Iris cannot traverse the provider files, run `python -m app.storage_meter` as a separate metadata-only helper with provider data read-only at `/openwa-data` and a writable report directory at `/meter`. Mount that report directory read-only into Iris and set `IRIS_OPENWA_STORAGE_REPORT` to its `openwa.json`. Reports older than three minutes are not accepted as fresh measurements. Give the helper only the filesystem access required by your deployment; it needs no network or Docker socket. The example does not automatically mount provider session data or start the helper.
+
+Retention settings accept days or hours for chat text and retained media. Iris retention does not delete OpenWA's own database/session data; configure that provider separately. Sender budgets reduce bursts but cannot guarantee that WhatsApp will not restrict an unofficial sender. Uncertain recipient outcomes are checkpointed for manual verification while later recipients continue; confirmed recipients are skipped on retries.
 
 Existing phones can use **Re-pair WhatsApp** on their card or Edit form. **Check connection** opens re-pairing when required. Iris checks the existing OpenWA session, refreshes its QR every two seconds and restores child webhooks after connection. Closing this dialog preserves the registered phone and session; it differs from abandoning an unsaved new pairing.

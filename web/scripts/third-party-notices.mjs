@@ -16,6 +16,8 @@ for (const [path, entry] of Object.entries(lock.packages).sort(([a], [b]) => a.l
   // Optional binaries for other platforms are not installed or distributed by this build.
   if (!existsSync(directory)) continue
   const pkg = JSON.parse(readFileSync(resolve(directory, 'package.json'), 'utf8'))
+  // PDF.js optionally uses native Canvas in Node; these binaries are never bundled into the browser SPA.
+  if (pkg.name === '@napi-rs/canvas' || pkg.name.startsWith('@napi-rs/canvas-')) continue
   const notices = []
   if (pkg.name === 'react-remove-scroll-bar' && pkg.version === '2.3.8') {
     notices.push('Upstream LICENSE (package omits this file)\n' + readFileSync(resolve(root, 'licenses/react-remove-scroll-bar.LICENSE'), 'utf8'))

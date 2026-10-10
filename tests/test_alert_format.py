@@ -43,9 +43,9 @@ def body_of(t: str) -> str:
 def test_full_alert_layout_and_israel_time() -> None:
     t = text()
     assert body_of(t) == (
-        "⚠️ Iris alert\nKid: Noa\nChat: Class 5B (group)\nFrom: Dan\n"
+        "⚠️ Iris alert\nA message to check together\n\nKid: Noa\nChat: Class 5B (group)\nFrom: Dan\n"
         "Category: violence (0.94), harassment\nTime: 06/10 20:05\n\n"
-        '"I will find you"'
+        "💬 Message\nI will find you\n\nSent by Iris · Server: iris.example"
     )
     assert t.split("\n\nOpen: ")[1].startswith(f"{BASE}/alerts/7?s=")
 
@@ -99,7 +99,12 @@ def test_valid_link_pasted_under_harmful_text_is_not_recognised() -> None:
 def test_any_edit_of_a_real_alert_breaks_the_signature() -> None:
     real = text()
     assert not is_own_alert(real.replace("Dan", "Eve"), KEY)
-    assert not is_own_alert(real.replace('"I will find you"', '"something else"'), KEY)
+    assert not is_own_alert(
+        real.replace(
+            "💬 Message\nI will find you\n\nSent by Iris · Server: iris.example", '"something else"'
+        ),
+        KEY,
+    )
     assert not is_own_alert(real.replace("/alerts/7?", "/alerts/8?"), KEY)
 
 
@@ -129,7 +134,9 @@ def test_a_kept_file_adds_a_portal_link_before_the_signed_link() -> None:
     t = text(media=MediaFact(media_id=12, kind="image", size_bytes=1_300_000))
     assert f"📎 Media kept (image, 1.2 MB): {BASE}/media/12" in t
     body = body_of(t)
-    assert body.index("📎 Media kept") > body.index('"I will find you"')  # after the quote
+    assert body.index("📎 Media kept") > body.index(
+        "💬 Message\nI will find you"
+    )  # after the quote
     assert t.endswith(f"?s={t.rsplit('?s=', 1)[1]}") and t.index("Open:") > t.index("📎")
     assert is_own_alert(t, KEY)  # the loop guard still recognises Iris's own text
 
@@ -154,3 +161,17 @@ def test_human_sizes() -> None:
     from app.alerts.format import human_size
 
     assert [human_size(n) for n in (5, 2048, 5 * 1024 * 1024)] == ["5 B", "2 KB", "5.0 MB"]
+
+
+def test_private_summary_omits_quote_scores_and_provider_diagnostics():
+    value = format_alert(
+        facts(verdict="review", review_reason="private provider failure"),
+        "UTC",
+        BASE,
+        KEY,
+        style="summary",
+    )
+    assert "Noa" in value and "Class 5B" in value and "Needs your review" in value
+    assert "I will find you" not in value and "0.94" not in value
+    assert "private provider failure" not in value
+    assert is_own_alert(value, KEY)

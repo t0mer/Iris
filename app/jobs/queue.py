@@ -21,12 +21,65 @@ BACKOFF_SECONDS = (5, 30, 120, 600, 1800)
 STALE_LOCK = timedelta(minutes=10)
 
 
+class LostLeaseError(Exception):
+    """A superseded attempt must roll back every pending message write."""
+
+
+async def ensure_owned(db: AsyncSession, job: "ClaimedJob") -> None:
+    result = await db.execute(
+        update(Job)
+        .where(
+            Job.id == job.id,
+            Job.status == "running",
+            Job.attempts == job.attempts,
+        )
+        .values(locked_at=_naive(_now()))
+    )
+    if result.rowcount != 1:  # type: ignore[attr-defined]
+        await db.rollback()
+        raise LostLeaseError("Job attempt no longer owns its lease")
+
+
 class TransientError(Exception):
     """Network / 429 / 5xx: retry with backoff. `retry_after` (seconds) overrides the schedule."""
 
     def __init__(self, message: str, retry_after: float | None = None) -> None:
         super().__init__(message)
         self.retry_after = retry_after
+
+
+class DeferredError(Exception):
+    """Waiting for sending capacity is not a failed delivery attempt."""
+
+    def __init__(self, message: str, delay: float) -> None:
+        super().__init__(message)
+        self.delay = delay
+
+
+async def defer(factory: async_sessionmaker[AsyncSession], job: "ClaimedJob", delay: float) -> str:
+    async with factory() as db:
+        result = await db.execute(
+            update(Job)
+            .where(Job.id == job.id, Job.status == "running", Job.attempts == job.attempts)
+            .values(
+                status="queued",
+                locked_at=None,
+                attempts=Job.attempts - 1,
+                run_after=_naive(_now() + timedelta(seconds=max(1, delay))),
+                last_error="Waiting for sending capacity",
+            )
+        )
+        changed = result.rowcount == 1  # type: ignore[attr-defined]
+        if changed and job.type == "deliver_alert" and isinstance(job.payload.get("alert_id"), int):
+            alert = await db.get(Alert, job.payload.get("alert_id"))
+            if alert is not None:
+                due = _now() + timedelta(seconds=max(1, delay))
+                alert.delivery_error = (
+                    f"Queued for sending capacity; next attempt {due.isoformat()}"
+                )
+        await db.commit()
+        bus.publish("jobs", "alerts", "stats")
+        return "queued" if changed else "superseded"
 
 
 class PermanentError(Exception):
@@ -106,9 +159,14 @@ async def heartbeat(factory: async_sessionmaker[AsyncSession], job: ClaimedJob) 
         await db.commit()
 
 
-async def ack(factory: async_sessionmaker[AsyncSession], job_id: int) -> None:
+async def ack(
+    factory: async_sessionmaker[AsyncSession], job_id: int, attempt: int | None = None
+) -> None:
     async with factory() as db:
-        await db.execute(update(Job).where(Job.id == job_id).values(status="done", locked_at=None))
+        statement = update(Job).where(Job.id == job_id)
+        if attempt is not None:
+            statement = statement.where(Job.status == "running", Job.attempts == attempt)
+        await db.execute(statement.values(status="done", locked_at=None))
         await db.commit()
     bus.publish("jobs", "stats")
 
@@ -125,32 +183,58 @@ async def fail(
     *,
     transient: bool,
     retry_after: float | None = None,
+    uncertain_delivery: bool = False,
 ) -> str:
     """Record a failure. Returns the new job status: queued (retry), dead or failed."""
     async with factory() as db:
+        owned = await db.get(Job, job.id)
+        if owned is None:
+            return "gone"
+        if owned.status != "running" or owned.attempts != job.attempts:
+            return owned.status  # a recovered or finished attempt owns the outcome now
         if transient and job.attempts < job.max_attempts:
             run_after = _naive(_now() + backoff_for(job.attempts, retry_after))
-            await db.execute(
+            result = await db.execute(
                 update(Job)
-                .where(Job.id == job.id)
+                .where(Job.id == job.id, Job.status == "running", Job.attempts == job.attempts)
                 .values(
-                    status="queued", locked_at=None, last_error=error[:500], run_after=run_after
+                    status="queued",
+                    locked_at=None,
+                    last_error=error[:500],
+                    run_after=run_after,
+                    payload={**owned.payload, "delivery_uncertain": True}
+                    if uncertain_delivery
+                    else owned.payload,
                 )
             )
+            if result.rowcount != 1:  # type: ignore[attr-defined]  # type: ignore[attr-defined]
+                await db.rollback()
+                return "superseded"
             await db.commit()
             bus.publish("jobs", "stats")
             return "queued"
         status = "dead" if transient else "failed"
-        await db.execute(
+        result = await db.execute(
             update(Job)
-            .where(Job.id == job.id)
-            .values(status=status, locked_at=None, last_error=error[:500])
+            .where(Job.id == job.id, Job.status == "running", Job.attempts == job.attempts)
+            .values(
+                status=status,
+                locked_at=None,
+                last_error=error[:500],
+                payload={**owned.payload, "delivery_uncertain": True}
+                if uncertain_delivery
+                else owned.payload,
+            )
         )
+        if result.rowcount != 1:  # type: ignore[attr-defined]  # type: ignore[attr-defined]
+            await db.rollback()
+            return "superseded"
         message_id = job.payload.get("message_id")
         if job.type == "process_message" and isinstance(message_id, int):
             await db.execute(
                 update(Message).where(Message.id == message_id).values(status="failed")
             )
+            await _review_failed_check(db, message_id)
         alert_id = job.payload.get("alert_id")
         # Only a delivery that ran out of attempts fails its alert; a lost follow-up must not
         # turn an alert the parent already received into a "failed" one.
@@ -165,7 +249,7 @@ async def fail(
                 .where(Alert.id == alert_id)
                 .values(
                     delivery_status="partial"
-                    if get_settings().local_safety_mode and job.payload.get("delivered_recipients")
+                    if job.payload.get("delivered_recipients")
                     else "failed",
                     delivery_error=error[:500],
                 )
@@ -173,6 +257,24 @@ async def fail(
         await db.commit()
         bus.publish("jobs", "stats", "messages", "alerts")  # a failed check or delivery shows
         return status
+
+
+async def _review_failed_check(db: AsyncSession, message_id: int) -> None:
+    """A terminal safety-check failure stays visible and cannot expire without review."""
+    if not get_settings().local_safety_mode:
+        return
+    message = await db.get(Message, message_id)
+    if message is None or message.verdict == "harmful":
+        return
+    message.verdict = "review"
+    message.review_reason = "Safety check unavailable after retries; parent review required"
+    await db.flush()
+    from app.settings_store import get_setting
+
+    if await get_setting(db, "alerts.alert_on_review"):
+        from app.alerts.service import create_alert
+
+        await create_alert(db, message, {})
 
 
 async def recover_stale(factory: async_sessionmaker[AsyncSession]) -> int:
@@ -186,13 +288,28 @@ async def recover_stale(factory: async_sessionmaker[AsyncSession]) -> int:
             .all()
         )
         for job in stale:
+            if job.type in ("deliver_alert", "notify_change", "test_alert"):
+                job.status, job.locked_at = "failed", None
+                job.payload = {**job.payload, "delivery_uncertain": True}
+                job.last_error = (
+                    "Delivery worker stopped; delivery is uncertain. Check before retrying."
+                )
+                if job.type == "deliver_alert" and isinstance(job.payload.get("alert_id"), int):
+                    alert = await db.get(Alert, job.payload["alert_id"])
+                    if alert is not None:
+                        alert.delivery_status = (
+                            "partial" if job.payload.get("delivered_recipients") else "failed"
+                        )
+                        alert.delivery_error = job.last_error
+                continue
             if job.attempts >= job.max_attempts:
                 job.status, job.locked_at, job.last_error = "dead", None, "worker crashed or hung"
                 mid = job.payload.get("message_id")
-                if isinstance(mid, int):
+                if job.type == "process_message" and isinstance(mid, int):
                     await db.execute(
                         update(Message).where(Message.id == mid).values(status="failed")
                     )
+                    await _review_failed_check(db, mid)
             else:
                 job.status, job.locked_at = "queued", None
         await db.commit()
@@ -200,12 +317,13 @@ async def recover_stale(factory: async_sessionmaker[AsyncSession]) -> int:
 
 
 async def has_active_job(db: AsyncSession, message_id: int) -> bool:
-    """True if a queued or running job already targets this message."""
+    """True if a queued or running classification targets this message."""
     n = (
         await db.execute(
             select(func.count())
             .select_from(Job)
             .where(
+                Job.type == "process_message",
                 Job.status.in_(["queued", "running"]),
                 Job.payload["message_id"].as_integer() == message_id,
             )
@@ -214,17 +332,19 @@ async def has_active_job(db: AsyncSession, message_id: int) -> bool:
     return int(n) > 0
 
 
-async def retry_job(db: AsyncSession, job_id: int) -> bool:
+async def retry_job(db: AsyncSession, job_id: int, *, manual: bool = False) -> bool:
     """Manual retry of a failed/dead job (Jobs page)."""
     job = await db.get(Job, job_id)
     if job is None or job.status not in ("failed", "dead"):
         return False
     mid = job.payload.get("message_id")
-    if isinstance(mid, int) and await has_active_job(db, mid):
+    if job.type == "process_message" and isinstance(mid, int) and await has_active_job(db, mid):
         return False  # another job for this message is already waiting or running
+    if manual and job.payload.get("rejected_recipients"):
+        job.payload = {k: v for k, v in job.payload.items() if k != "rejected_recipients"}
     job.status, job.attempts, job.last_error, job.run_after = "queued", 0, None, _naive(_now())
     message_id = job.payload.get("message_id")
-    if isinstance(message_id, int):
+    if job.type == "process_message" and isinstance(message_id, int):
         await db.execute(update(Message).where(Message.id == message_id).values(status="pending"))
     await db.commit()
     return True

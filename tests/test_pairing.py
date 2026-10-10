@@ -296,3 +296,40 @@ async def test_new_openwa_qr_replaces_old_code_without_restart(app_client: Any) 
     assert (await app_client.get("/api/pairing/" + token)).json()["qr"] == QR2
     assert not mocked["stop"].called
     assert mocked["start"].call_count == 1
+
+
+async def test_cleanup_retries_after_database_failure(app_client: Any) -> None:
+    import pytest
+
+    calls = 0
+    sleeps = 0
+    real_sleep = asyncio.sleep
+    factory = app_client.app.state.session_factory
+
+    def flaky_factory() -> Any:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("temporary database outage")
+        return factory()
+
+    async def sleep(seconds: float) -> None:
+        nonlocal sleeps
+        sleeps += 1
+        if sleeps == 2:
+            raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        await pairing.cleanup_loop(flaky_factory, sleep=sleep)
+    assert asyncio.sleep is real_sleep
+    assert sleeps == 2
+    assert calls >= 2  # configuration and durable run history use additional sessions
+    from app.db.models import ScheduleRun
+
+    async with factory() as db:
+        runs = list(
+            await db.scalars(
+                select(ScheduleRun).where(ScheduleRun.schedule_key == "pairing_cleanup")
+            )
+        )
+        assert any(run.status == "success" for run in runs)

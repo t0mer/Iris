@@ -1,4 +1,6 @@
+import { t } from '../lib/i18n'
 import { useQuery } from '@tanstack/react-query'
+import { SkipGroup } from '../components/SkipGroup'
 import { Search, SearchX } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -23,7 +25,7 @@ import { dateTime } from '../lib/format'
 import { useUrlState } from '../lib/urlState'
 import type { Instance, MessagePage } from '../lib/types'
 
-const TYPES = ['text', 'image', 'audio', 'voice', 'video', 'sticker', 'document', 'other']
+const TYPES = ['text', 'image', 'audio', 'voice', 'video', 'sticker', 'document', 'poll', 'other']
 const VERDICTS = [
   { value: 'harmful', label: 'Harmful' },
   { value: 'review', label: 'Needs review' },
@@ -84,10 +86,10 @@ export function Messages() {
   if (from) params.set('from', from)
 
   const { data: instances } = useQuery({
-    queryKey: ['instances'],
-    queryFn: () => api<Instance[]>('/api/instances'),
+    queryKey: ['auth-phones'],
+    queryFn: () => api<Instance[]>('/api/auth/phones'),
   })
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['messages', params.toString()],
     queryFn: () => api<MessagePage>(`/api/messages?${params}`),
   })
@@ -98,8 +100,10 @@ export function Messages() {
   return (
     <div className="flex flex-col gap-5">
       <PageHeader
-        title="Messages"
-        description="Everything Iris has seen. Search covers messages and voice-note transcripts, in Hebrew and English."
+        title={t('Messages')}
+        description={t(
+          'Everything Iris has seen. Search covers messages and voice-note transcripts, in Hebrew and English.',
+        )}
         actions={<RevealButton revealed={revealed} onToggle={toggle} />}
       />
 
@@ -108,8 +112,8 @@ export function Messages() {
         <Input
           type="search"
           dir="auto"
-          aria-label="Search messages"
-          placeholder="Search words, names or transcripts"
+          aria-label={t('Search messages')}
+          placeholder={t('Search words, names or transcripts')}
           className="min-h-11 ps-9"
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -124,19 +128,19 @@ export function Messages() {
         }}
         leading={
           <Chips
-            label="When"
+            label={t('When')}
             value={get('when')}
             options={WHEN}
             onChange={(v) => update({ when: v })}
           />
         }
       >
-        <Field label="Phone" className="md:w-40">
+        <Field label={t('Phone')} className="md:w-40">
           <Select
             value={get('instance_id')}
             onChange={(e) => update({ instance_id: e.target.value })}
           >
-            <option value="">All phones</option>
+            <option value="">{t('All phones')}</option>
             {instances?.map((i) => (
               <option key={i.id} value={i.id}>
                 {i.kid_name}
@@ -144,25 +148,27 @@ export function Messages() {
             ))}
           </Select>
         </Field>
-        <Field label="Type" className="md:w-36">
+        <Field label={t('Type')} className="md:w-36">
           <Select value={get('type')} onChange={(e) => update({ type: e.target.value })}>
-            <option value="">All types</option>
-            {TYPES.map((t) => (
-              <option key={t}>{t}</option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Verdict" className="md:w-40">
-          <Select value={get('verdict')} onChange={(e) => update({ verdict: e.target.value })}>
-            <option value="">Any verdict</option>
-            {VERDICTS.map((v) => (
-              <option key={v.value} value={v.value}>
-                {v.label}
+            <option value="">{t('All types')}</option>
+            {TYPES.map((type) => (
+              <option key={type} value={type}>
+                {t(type)}
               </option>
             ))}
           </Select>
         </Field>
-        <Field label="Sender" className="md:w-40">
+        <Field label={t('Verdict')} className="md:w-40">
+          <Select value={get('verdict')} onChange={(e) => update({ verdict: e.target.value })}>
+            <option value="">{t('Any verdict')}</option>
+            {VERDICTS.map((v) => (
+              <option key={v.value} value={v.value}>
+                {t(v.label)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label={t('Sender')} className="md:w-40">
           <Input
             dir="auto"
             value={get('sender')}
@@ -180,7 +186,10 @@ export function Messages() {
           ))}
         {isError && (
           <li role="alert" className="p-4 text-sm text-danger">
-            Could not load messages. Reload the page; if it keeps failing, check the Jobs page.
+            {t('Could not load messages.')}{' '}
+            <button className="underline" onClick={() => void refetch()}>
+              {t('Retry')}
+            </button>
           </li>
         )}
         {data?.items.map((m) => (
@@ -219,13 +228,16 @@ export function Messages() {
               </span>
               <Failure m={m} />
             </Link>
+            <div className="px-4 pb-3">
+              <SkipGroup messageId={m.id} isGroup={m.is_group} />
+            </div>
           </li>
         ))}
         {data && data.items.length === 0 && (
           <li>
             <EmptyState
               icon={SearchX}
-              title={active > 0 ? 'No messages match' : 'No messages yet'}
+              title={active > 0 ? t('No messages match') : t('No messages yet')}
               action={
                 active > 0 ? (
                   <Button
@@ -235,14 +247,14 @@ export function Messages() {
                       clear()
                     }}
                   >
-                    Clear search and filters
+                    {t('Clear search and filters')}
                   </Button>
                 ) : undefined
               }
             >
               {active > 0
-                ? 'Try fewer words or remove a filter.'
-                : 'Messages appear here a few seconds after a phone receives or sends them.'}
+                ? t('Try fewer words or remove a filter.')
+                : t('Messages appear here a few seconds after a phone receives or sends them.')}
             </EmptyState>
           </li>
         )}
