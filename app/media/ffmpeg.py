@@ -101,7 +101,93 @@ async def extract_audio(src: Path, dst: Path) -> None:
 async def image_to_jpeg(src: Path, dst: Path, max_dim: int = 2000) -> None:
     """First frame as a bounded JPEG: converts webp/gif/png and keeps request sizes small."""
     await _check(src)
-    await _run(
-        "ffmpeg", "-nostdin", "-y", "-loglevel", "error", *_SAFE_INPUT, "-i", str(src),
-        "-frames:v", "1", "-vf", f"scale='min({max_dim},iw)':'-2'", "-q:v", "3", str(dst),
-    )  # fmt: skip
+    frame = dst.with_suffix(".first-frame.webp")
+    geometry = await asyncio.to_thread(_animated_webp_first_frame, src, frame)
+    filters = []
+    if geometry:
+        width, height, x, y = geometry
+        filters.append(f"pad={width}:{height}:{x}:{y}:color=white")
+    filters.append(
+        f"scale='min({max_dim},iw)':'min({max_dim},ih)':force_original_aspect_ratio=decrease"
+    )
+    try:
+        await _run(
+            "ffmpeg", "-nostdin", "-y", "-loglevel", "error", *_SAFE_INPUT,
+            "-i", str(frame if geometry else src), "-frames:v", "1", "-vf",
+            ",".join(filters), "-q:v", "3", str(dst),
+        )  # fmt: skip
+        if not await asyncio.to_thread(lambda: dst.is_file() and dst.stat().st_size > 0):
+            raise PermanentError(
+                "Image conversion produced no readable frame; try the original media"
+            )
+    except PermanentError as exc:
+        raise PermanentError(
+            "Iris could not decode this image for AI analysis. "
+            "The original may still display in your browser."
+        ) from exc
+    finally:
+        await asyncio.to_thread(frame.unlink, missing_ok=True)
+
+
+def _animated_webp_first_frame(src: Path, dst: Path) -> tuple[int, int, int, int] | None:
+    """Unwrap the first ANMF frame for FFmpeg builds without animated WebP decoding.
+
+    RIFF chunk sizes include padding; ANMF begins with a 16-byte frame header.
+    Keep the frame's original compressed image/alpha chunks and canvas placement.
+    No frame decompression, external tools or network access happens here.
+    """
+    with src.open("rb") as fh:
+        header = fh.read(12)
+        if header[:4] != b"RIFF" or header[8:12] != b"WEBP":
+            return None
+        end = int.from_bytes(header[4:8], "little") + 8
+        if end > src.stat().st_size:
+            raise PermanentError("Sticker data is incomplete; try retrieving the original again")
+        canvas: tuple[int, int] | None = None
+        alpha = 0
+        animated = False
+        while fh.tell() + 8 <= end:
+            chunk = fh.read(8)
+            tag, size = chunk[:4], int.from_bytes(chunk[4:], "little")
+            if fh.tell() + size + size % 2 > end:
+                raise PermanentError("Sticker data contains an invalid frame")
+            if tag == b"VP8X" and size == 10:
+                data = fh.read(size)
+                animated = bool(data[0] & 2)
+                alpha = data[0] & 16
+                canvas = (
+                    int.from_bytes(data[4:7], "little") + 1,
+                    int.from_bytes(data[7:10], "little") + 1,
+                )
+                if not animated:
+                    return None
+            elif tag == b"ANMF" and animated and canvas:
+                if not 16 < size <= 16 * 1024 * 1024:
+                    raise PermanentError("Sticker frame is too large or incomplete")
+                data = fh.read(size)
+                x, y = (
+                    int.from_bytes(data[:3], "little") * 2,
+                    int.from_bytes(data[3:6], "little") * 2,
+                )
+                width, height = (
+                    int.from_bytes(data[6:9], "little") + 1,
+                    int.from_bytes(data[9:12], "little") + 1,
+                )
+                cw, ch = canvas
+                if cw * ch > 40_000_000 or x + width > cw or y + height > ch:
+                    raise PermanentError("Sticker canvas is too large or its frame is invalid")
+                vp8x = (
+                    bytes([alpha, 0, 0, 0])
+                    + (width - 1).to_bytes(3, "little")
+                    + (height - 1).to_bytes(3, "little")
+                )
+                payload = b"WEBPVP8X" + (10).to_bytes(4, "little") + vp8x + data[16:]
+                dst.write_bytes(b"RIFF" + len(payload).to_bytes(4, "little") + payload)
+                return cw, ch, x, y
+            else:
+                fh.seek(size, 1)
+            if size % 2:
+                fh.seek(1, 1)
+        if animated:
+            raise PermanentError("Animated sticker contains no readable frame")
+        return None

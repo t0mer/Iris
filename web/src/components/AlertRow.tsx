@@ -9,6 +9,7 @@ import { KidStack } from './KidAvatar'
 import { MediaBadge } from './MediaPlayer'
 import { Concealed } from './Reveal'
 import { Badge } from './ui/badge'
+import { SkipGroup } from './SkipGroup'
 
 const DELIVERY: Record<
   string,
@@ -16,17 +17,22 @@ const DELIVERY: Record<
 > = {
   failed: { label: 'Not delivered', tone: 'danger', icon: CircleAlert },
   partial: { label: 'Some parents notified', tone: 'warning', icon: CircleAlert },
+  paused: { label: 'Monitoring paused', tone: 'neutral', icon: BellOff },
   suppressed: { label: 'Held back', tone: 'neutral', icon: BellOff },
-  pending: { label: 'Sending', tone: 'warning', icon: CircleAlert },
+  pending: { label: 'Queued', tone: 'warning', icon: CircleAlert },
 }
 
 /** One alert as a row: severity bar, who, where, what was said, and what state it is in. */
 export function AlertRow({ alert: a, revealed = false }: { alert: Alert; revealed?: boolean }) {
   const open = a.status === 'new'
+  const review = a.verdict === 'review'
   const delivery = DELIVERY[a.delivery_status]
   const voice = a.quote?.startsWith('🎤')
   return (
     <li>
+      <div className="px-5 pt-2">
+        <SkipGroup messageId={a.message_id} />
+      </div>
       <Link
         to={`/alerts/${a.id}`}
         className={cn(
@@ -38,7 +44,7 @@ export function AlertRow({ alert: a, revealed = false }: { alert: Alert; reveale
           aria-hidden
           className={cn(
             'absolute inset-y-3 start-0 w-1 rounded-e-full',
-            open ? 'bg-danger' : 'bg-border-strong',
+            open ? (review ? 'bg-warning' : 'bg-danger') : 'bg-border-strong',
           )}
         />
         <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -49,7 +55,10 @@ export function AlertRow({ alert: a, revealed = false }: { alert: Alert; reveale
             {relativeTime(a.created_at)}
           </span>
         </span>
-        <span className="line-clamp-2 max-w-prose text-[15px]" dir="auto">
+        <span
+          className="line-clamp-3 max-w-prose rounded-xl rounded-ss-sm bg-success-soft/40 px-4 py-3 text-[15px] font-normal leading-relaxed"
+          dir="auto"
+        >
           {a.redacted ? (
             <span className="inline-flex items-center gap-1.5 italic text-muted-foreground">
               <ShieldOff className="size-4" /> Content withheld. Review the chat directly.
@@ -67,10 +76,16 @@ export function AlertRow({ alert: a, revealed = false }: { alert: Alert; reveale
             </>
           )}
         </span>
+        <span className="text-xs text-muted-foreground">
+          Alert #{a.id} · Message #{a.message_id}
+        </span>
+        {review && a.review_reason && (
+          <span className="text-xs text-muted-foreground">{a.review_reason}</span>
+        )}
         <span className="flex flex-wrap items-center gap-1.5">
-          <Badge tone="danger">
-            <CircleAlert /> {a.categories[0]}{' '}
-            <span className="tabular">{a.max_score.toFixed(2)}</span>
+          <Badge tone={review ? 'warning' : 'danger'}>
+            <CircleAlert /> {review ? 'Needs parent review' : a.categories[0]}{' '}
+            {!review && <span className="tabular">{a.max_score.toFixed(2)}</span>}
           </Badge>
           {a.categories.slice(1, 3).map((c) => (
             <Badge key={c}>{c}</Badge>
@@ -84,6 +99,9 @@ export function AlertRow({ alert: a, revealed = false }: { alert: Alert; reveale
           <MessageFlags
             m={{ id: a.message_id, edited_at: a.edited_at, revoked_at: a.revoked_at }}
           />
+          {a.delivery_error?.startsWith('Queued for sending capacity') && (
+            <span className="text-xs text-muted-foreground">{a.delivery_error}</span>
+          )}
           {delivery && (
             <Badge tone={delivery.tone} title={a.delivery_error ?? undefined}>
               <delivery.icon /> {delivery.label}

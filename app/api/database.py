@@ -19,9 +19,9 @@ from app.db.copy import CopyError, CopyProgress, copy_database
 from app.db.engine import make_engine
 from app.db.models import Base
 from app.db.url import DbConfig
-from app.security.auth import current_user
+from app.security.auth import admin_user
 
-router = APIRouter(prefix="/api/database", tags=["database"], dependencies=[Depends(current_user)])
+router = APIRouter(prefix="/api/database", tags=["database"], dependencies=[Depends(admin_user)])
 Cfg = Annotated[Settings, Depends(get_settings)]
 
 TEST_TIMEOUT = 12

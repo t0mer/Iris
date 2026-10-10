@@ -60,8 +60,10 @@ export function RepairPhone({
       }
     } catch (error) {
       setFinishError(
-        error instanceof Error ? error.message : 'Webhook registration failed. Retry below.',
+        'WhatsApp connected successfully, but monitoring setup failed. ' +
+          (error instanceof Error ? error.message : 'Retry restoring monitoring below.'),
       )
+      await qc.invalidateQueries({ queryKey: ['instances'] })
     } finally {
       setFinishing(false)
     }
@@ -88,11 +90,17 @@ export function RepairPhone({
         setOpen(value)
       }}
     >
-      <DialogTrigger asChild>
-        <Button variant="outline">Re-pair WhatsApp</Button>
-      </DialogTrigger>
+      {phone.connection_status !== 'ready' && (
+        <DialogTrigger asChild>
+          <Button variant="outline">Re-pair WhatsApp</Button>
+        </DialogTrigger>
+      )}
       <DialogContent
-        title={`Re-pair ${phone.kid_name}`}
+        title={
+          check.data?.status === 'ready'
+            ? `${phone.kid_name} connected`
+            : `Re-pair ${phone.kid_name}`
+        }
         description="Reconnect the existing WhatsApp session. Closing this window never deletes your phone or session."
       >
         {check.data?.qr && !check.isError && (
@@ -104,18 +112,22 @@ export function RepairPhone({
           />
         )}
         <p role="status" className="flex items-center gap-2">
-          {!check.data?.qr && !check.isError && (
+          {!check.data?.qr && !check.isError && check.data?.status !== 'ready' && (
             <LoaderCircle aria-hidden className="size-5 animate-spin" />
           )}
           {finishing
             ? 'Connected. Restoring monitoring…'
-            : check.data?.status === 'authenticating'
-              ? 'Scan received. Confirming WhatsApp connection…'
-              : check.data?.qr
-                ? 'WhatsApp → Linked devices → Link a device. QR changes update automatically.'
-                : check.isError
-                  ? 'Connection check failed.'
-                  : 'Checking the existing session and waiting for OpenWA to provide a QR…'}
+            : check.data?.status === 'ready'
+              ? finishError
+                ? 'WhatsApp connected. Monitoring setup needs attention.'
+                : 'WhatsApp connected.'
+              : check.data?.status === 'authenticating'
+                ? 'Scan received. Confirming WhatsApp connection…'
+                : check.data?.qr
+                  ? 'WhatsApp → Linked devices → Link a device. QR changes update automatically.'
+                  : check.isError
+                    ? 'Connection check failed.'
+                    : 'Checking the existing session and waiting for OpenWA to provide a QR…'}
         </p>
         {check.isError && (
           <p role="alert" className="text-sm text-danger">
@@ -133,7 +145,7 @@ export function RepairPhone({
           </>
         )}
         <Button onClick={() => void check.refetch()} disabled={check.isFetching || finishing}>
-          Refresh QR / check connection
+          {check.data?.status === 'ready' ? 'Check connection' : 'Refresh QR / check connection'}
         </Button>
       </DialogContent>
     </Dialog>

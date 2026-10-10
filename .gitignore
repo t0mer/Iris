@@ -65,3 +65,8 @@ app/static/
 
 .test-*/
 PR_DRAFT.md
+
+# Private local artifacts and temporary test runs
+.local/
+
+web/.local/

@@ -1,3 +1,4 @@
+import { useMe } from '../lib/auth'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronLeft, RotateCw } from 'lucide-react'
 import { useEffect, useRef } from 'react'
@@ -7,6 +8,7 @@ import { ClassificationCards } from '../components/ClassificationCards'
 import { KidStack } from '../components/KidAvatar'
 import { Failure, MessageBody, VerdictBadge } from '../components/MessageBody'
 import { MediaPlayer } from '../components/MediaPlayer'
+import { OriginalMedia } from '../components/OriginalMedia'
 import { RevealButton } from '../components/Reveal'
 import { useReveal } from '../lib/useReveal'
 import { MessageFlags } from '../components/MessageFlags'
@@ -25,6 +27,8 @@ export function MessageContext() {
   const { id } = useParams()
   const { revealed, toggle } = useReveal(id)
   const qc = useQueryClient()
+  const { data: me } = useMe()
+  const canAct = me?.role === 'admin' || me?.role === 'parent'
   const detailQuery = useQuery({
     queryKey: ['message', id],
     queryFn: () => api<MessageDetail>(`/api/messages/${id}`),
@@ -76,7 +80,7 @@ export function MessageContext() {
                 <Button
                   variant="outline"
                   onClick={() => reprocess.mutate()}
-                  disabled={reprocess.isPending}
+                  disabled={reprocess.isPending || !canAct}
                 >
                   <RotateCw /> Check again
                 </Button>
@@ -86,11 +90,22 @@ export function MessageContext() {
         }
       />
       {detail && (
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
           <KidStack names={detail.kids.map((k) => k.kid_name)} />
           <VerdictBadge m={detail} />
           <MessageFlags m={detail} history />
           <Failure m={detail} />
+          {detail.raw_type && (
+            <p className="text-xs text-muted-foreground">OpenWA type: {detail.raw_type}</p>
+          )}
+          {detail.diagnostics && (
+            <details className="min-w-0 max-w-full basis-full text-xs text-muted-foreground">
+              <summary>Diagnostic metadata</summary>
+              <pre className="max-w-full overflow-x-auto">
+                {JSON.stringify(detail.diagnostics, null, 2)}
+              </pre>
+            </details>
+          )}
         </div>
       )}
 
@@ -99,6 +114,14 @@ export function MessageContext() {
           <MediaPlayer media={detail.media} revealed={revealed} />
         </div>
       )}
+      {detail &&
+        !detail.media &&
+        !detail.redacted &&
+        ['sticker', 'video', 'image'].includes(detail.type) && (
+          <p className="text-sm text-muted-foreground">
+            No retained copy is saved. Show content to view the original media from OpenWA below.
+          </p>
+        )}
 
       {!context && !contextQuery.isError && <Skeleton className="h-64" />}
       {(detailQuery.isError || contextQuery.isError) && (
@@ -135,11 +158,23 @@ export function MessageContext() {
             >
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <TypeIcon type={m.type} className="size-3.5" />
-                {m.sender_name ?? 'Unknown'}, {dateTime(m.sent_at)}
+                {m.sender_name ?? 'Unknown'}, {dateTime(m.sent_at)} · Message #{m.id}
+                <time dateTime={m.sent_at} title="Original message timestamp">
+                  {new Date(m.sent_at).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                  })}
+                </time>
               </span>
               <span className="text-[15px]">
                 <MessageBody m={m} revealed={revealed} />
               </span>
+              {!m.redacted &&
+                !m.revoked_at &&
+                ['image', 'sticker', 'video', 'audio', 'voice'].includes(m.type) && (
+                  <OriginalMedia key={m.id} id={m.id} type={m.type} revealed={revealed} />
+                )}
               <span className="flex flex-wrap items-center gap-1.5 empty:hidden">
                 {isTarget && <VerdictBadge m={m} />}
                 <MessageFlags m={m} history />

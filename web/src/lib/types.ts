@@ -17,6 +17,10 @@ export interface Message {
   sent_at: string
   status: string
   verdict: string | null
+  review_reason?: string | null
+  skip_reason?: string | null
+  raw_type?: string | null
+  diagnostics?: Record<string, boolean | string> | null
   redacted: boolean
   edited_at: string | null
   revoked_at: string | null
@@ -66,6 +70,8 @@ export interface Instance {
   openwa_instance_id: string
   api_key_set: boolean
   enabled: boolean
+  monitoring_status?: string
+  monitoring_error?: string | null
   webhook_url: string
   last_webhook_at: string | null
   created_at: string
@@ -85,6 +91,9 @@ export interface MediaInfo extends KeptMedia {
 }
 
 export interface Alert {
+  seen_at?: string | null
+  verdict?: string | null
+  review_reason?: string | null
   id: number
   message_id: number
   chat_id: number
@@ -112,18 +121,38 @@ export interface AlertPage {
   page_size: number
 }
 
+export interface ResponseNote {
+  actor: string
+  choice: string
+  applied: boolean
+  note: string
+  created_at: string
+}
+
 export interface AlertDetail extends Alert {
+  response_notes?: ResponseNote[]
+  sending_server?: string
+  recipient_delivery?: { recipient: string; status: string }[]
   message_type: string
   sent_at: string
   classifications: Classification[]
 }
 
 export interface ReviewItem {
+  human_feedback?: {
+    verdict: string
+    categories: string[] | null
+    explanation: string | null
+    details_current: boolean
+  } | null
+  response_notes?: ResponseNote[]
+  missing_data?: boolean
   message: Message
   classifications: Classification[]
 }
 
 export interface ReviewPage {
+  reviewed_total?: number
   items: ReviewItem[]
   total: number
   page: number
@@ -131,11 +160,25 @@ export interface ReviewPage {
 }
 
 export interface Stats {
+  monitoring_issues?: {
+    instance_id: number
+    kid_name: string
+    issues: string[]
+    refresh_attempts?: number
+    refresh_limit?: number
+    refresh_error?: string | null
+    notify_after?: string | null
+  }[]
+  schedule_failures?: { key: string; error: string }[]
+  alert_delivery_issues?: string[]
+  eligible_alert_recipients?: number
+  invalid_alert_recipients?: number
   messages_today: number
   messages_7d: number
   alerts_by_status: Record<string, number>
   alerts_by_delivery: Record<string, number>
   review_queue: number
+  iris_review_queue?: number
   jobs_by_status: Record<string, number>
   queue_depth: number
   failed_jobs: number
@@ -151,7 +194,37 @@ export interface Stats {
   monitoring_window_minutes?: number
   media_policy?: string
   media_files?: number
+  alert_media_not_saved?: number
+  alert_media_warning_count?: number
+  alert_media_warning_latest_id?: number
+  alert_channel?: string
   media_bytes?: number
+}
+
+export interface AlertReadiness {
+  channel: string
+  ready: boolean
+  provider_ready: boolean
+  provider_error: string | null
+  eligible_count: number
+  invalid_count: number
+  error: string | null
+  issues: string[]
+  recipients: {
+    target: string
+    user_id: number | null
+    name: string
+    eligible: boolean
+    reason: string | null
+    legacy: boolean
+  }[]
+  users: {
+    id: number
+    username: string
+    selected: boolean
+    eligible: boolean
+    reason: string | null
+  }[]
 }
 
 export interface Chat {
@@ -166,6 +239,7 @@ export interface Chat {
 }
 
 export interface Job {
+  run_after?: string
   id: number
   type: string
   status: string

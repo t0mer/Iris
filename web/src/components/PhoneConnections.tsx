@@ -20,7 +20,13 @@ import { PhonePairing, type PairingState } from './PhonePairing'
 const fail = (fallback: string) => (e: unknown) =>
   toast.error(e instanceof ApiError ? e.message : fallback)
 
-export function PhoneCard({ i }: { i: Instance }) {
+export function PhoneCard({
+  i,
+  senderConnection = false,
+}: {
+  i: Instance
+  senderConnection?: boolean
+}) {
   const qc = useQueryClient()
   const refresh = () => qc.invalidateQueries({ queryKey: ['instances'] })
   const [repairOpen, setRepairOpen] = useState(false)
@@ -40,7 +46,10 @@ export function PhoneCard({ i }: { i: Instance }) {
       toast.success(`Webhook registered in OpenWA for ${i.kid_name}.`)
       return refresh()
     },
-    onError: fail('Could not register the webhook.'),
+    onError: (error) => {
+      fail('Could not register the webhook.')(error)
+      void refresh()
+    },
   })
   const rotate = useMutation({
     mutationFn: () => api(`/api/instances/${i.id}/rotate-token`, { method: 'POST' }),
@@ -65,6 +74,7 @@ export function PhoneCard({ i }: { i: Instance }) {
     onSuccess: () => refresh(),
     onError: fail('Could not change the phone role.'),
   })
+  const [deleteMessages, setDeleteMessages] = useState(false)
   const [deleteOpenWA, setDeleteOpenWA] = useState(false)
   const [removalStage, setRemovalStage] = useState(0)
   const [removalError, setRemovalError] = useState('')
@@ -78,7 +88,12 @@ export function PhoneCard({ i }: { i: Instance }) {
         await api(`/api/instances/${i.id}/remove-openwa?stage=delete`, { method: 'POST' })
         setRemovalStage(3)
       }
-      await api(`/api/instances/${i.id}`, { method: 'DELETE' })
+      await api(
+        `/api/instances/${i.id}${deleteMessages && !parent ? '?delete_messages=true' : ''}`,
+        {
+          method: 'DELETE',
+        },
+      )
       setRemovalStage(4)
     },
     onSuccess: () => {
@@ -97,7 +112,7 @@ export function PhoneCard({ i }: { i: Instance }) {
       toast.error('Could not copy. Select the address and copy it by hand.')
     }
   }
-  const parent = i.role === 'parent'
+  const parent = senderConnection || i.role === 'parent'
   return (
     <li className="flex flex-col gap-4 rounded-lg border bg-surface p-4 sm:p-5">
       <div className="flex flex-wrap items-center gap-3">
@@ -110,7 +125,7 @@ export function PhoneCard({ i }: { i: Instance }) {
         </div>
         {!parent && (
           <label className="flex items-center gap-2 text-sm font-medium">
-            {i.enabled ? 'Monitoring enabled' : 'Paused'}
+            {i.enabled ? 'Watching enabled' : 'Paused'}
             <Switch
               checked={i.enabled}
               onCheckedChange={(v) => toggle.mutate(v)}
@@ -168,6 +183,22 @@ export function PhoneCard({ i }: { i: Instance }) {
             until WhatsApp reconnects.
           </p>
         )}
+      {!parent && i.enabled && (
+        <div className="space-y-2">
+          <Badge tone={i.monitoring_status === 'failed' ? 'danger' : 'neutral'}>
+            {i.monitoring_status === 'failed'
+              ? 'Monitoring setup failed'
+              : i.monitoring_status === 'registered'
+                ? 'Monitoring webhook registered'
+                : 'Monitoring setup not verified'}
+          </Badge>
+          {i.monitoring_error && (
+            <p role="alert" className="text-sm text-danger">
+              {i.monitoring_error} Retry Register webhook below.
+            </p>
+          )}
+        </div>
+      )}
       <RepairPhone phone={i} open={repairOpen} onOpenChange={setRepairOpen} />
       <Field label={`Role for ${i.kid_name}`}>
         <Select
@@ -265,6 +296,7 @@ export function PhoneCard({ i }: { i: Instance }) {
           keepOpen
           onOpenChange={(open) => {
             if (open) {
+              setDeleteMessages(false)
               setDeleteOpenWA(false)
               setRemovalStage(0)
               setRemovalError('')
@@ -287,6 +319,25 @@ export function PhoneCard({ i }: { i: Instance }) {
               </span>
             </span>
           </label>
+          {!parent && (
+            <label className="flex min-h-11 items-start gap-3 text-sm">
+              <input
+                type="checkbox"
+                className="mt-1 size-5"
+                checked={deleteMessages}
+                disabled={remove.isPending}
+                onChange={(e) => setDeleteMessages(e.target.checked)}
+              />
+              <span>
+                Also delete saved received messages
+                <span className="block text-muted-foreground">
+                  Deletes received messages exclusive to this phone, including their alerts and
+                  stored media. Sent and shared messages stay. This does not delete messages from
+                  WhatsApp.
+                </span>
+              </span>
+            </label>
+          )}
           {removalStage > 0 && (
             <div className="flex flex-col gap-2" aria-live="polite">
               <progress
@@ -591,12 +642,73 @@ export function AddPhone({ defaultRole = 'child' }: { defaultRole?: 'child' | 'p
   )
 }
 
-function ParentRecipients() {
+type AlertChannel = 'openwa' | 'greenapi' | 'smtp' | 'telegram'
+
+function ParentRecipients({ channel }: { channel?: string }) {
   const qc = useQueryClient()
+  const accounts = useQuery({
+    queryKey: ['users'],
+    queryFn: () =>
+      api<
+        {
+          id: number
+          username: string
+          role: string
+          email: string | null
+          email_verified: boolean
+          whatsapp_number: string | null
+        }[]
+      >('/api/users'),
+  })
+  const registeredParents = Array.isArray(accounts.data)
+    ? accounts.data.filter((user) => user.role !== 'watch' && (user.email || user.whatsapp_number))
+    : []
   const { data } = useQuery({
     queryKey: ['settings'],
     queryFn: () => api<Record<string, unknown>>('/api/settings'),
   })
+  const children = useQuery({
+    queryKey: ['instances'],
+    queryFn: () => api<Instance[]>('/api/instances'),
+  })
+  const selectedChannel = channel ?? (data?.['alerts.channel'] as AlertChannel) ?? 'openwa'
+  const contacts = (data?.['alerts.recipient_contacts'] ?? {}) as Record<
+    string,
+    { email?: string; telegram_chat_id?: string }
+  >
+  const [contactDrafts, setContactDrafts] = useState<
+    Record<string, { email?: string; telegram_chat_id?: string }>
+  >({})
+  const contactSave = useMutation({
+    mutationFn: (value: typeof contacts) =>
+      api('/api/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ settings: { 'alerts.recipient_contacts': value } }),
+      }),
+    onSuccess: () => {
+      setContactDrafts({})
+      return qc.invalidateQueries({ queryKey: ['settings'] })
+    },
+    onError: fail('Could not save parent destinations.'),
+  })
+  const assignments = (data?.['alerts.recipient_children'] ?? {}) as Record<string, number[]>
+  const assign = useMutation({
+    mutationFn: (next: Record<string, number[]>) =>
+      api('/api/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ settings: { 'alerts.recipient_children': next } }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+    onError: fail('Could not save child assignments.'),
+  })
+  const canonical = (value: string) =>
+    value.startsWith('email:')
+      ? value.toLowerCase()
+      : value.includes('@') && !value.endsWith('@c.us') && !value.endsWith('@g.us')
+        ? 'email:' + value.toLowerCase()
+        : value.includes('@')
+          ? value
+          : value.replace(/[^0-9]/g, '') + '@c.us'
   const [phone, setPhone] = useState('')
   const values =
     typeof data?.['alerts.recipient'] === 'string' ? (data['alerts.recipient'] as string) : ''
@@ -608,7 +720,16 @@ function ParentRecipients() {
     mutationFn: (recipient: string) =>
       api('/api/settings', {
         method: 'PUT',
-        body: JSON.stringify({ settings: { 'alerts.recipient': recipient || null } }),
+        body: JSON.stringify({
+          settings: {
+            'alerts.recipient': recipient || null,
+            'alerts.recipient_children': Object.fromEntries(
+              Object.entries(assignments).filter(([parent]) =>
+                recipient.split(/[,;\n]/).some((target) => canonical(target.trim()) === parent),
+              ),
+            ),
+          },
+        }),
       }),
     onSuccess: () => {
       setPhone('')
@@ -619,15 +740,99 @@ function ParentRecipients() {
   })
   return (
     <section className="flex flex-col gap-3 rounded-lg border bg-surface p-4">
-      <h2 className="text-lg font-semibold">Parent alert recipients</h2>
+      <h2 id="parent-alert-recipients" tabIndex={-1} className="scroll-mt-6 text-lg font-semibold">
+        Parent alert recipients
+      </h2>
       <p className="text-sm text-muted-foreground">
-        These numbers receive alerts. They do not need their own OpenWA session. Up to ten
-        recipients.
+        Choose which children each parent receives alerts for. All children is the default.
+        Selecting no children pauses alerts for that parent. Up to ten recipients.
+      </p>
+      <p className="text-sm text-muted-foreground">
+        The channel selected in Alert delivery applies to every recipient.
+        {selectedChannel === 'smtp' && ' Email alerts use the email saved in Users.'}
+        {selectedChannel === 'telegram' &&
+          ' Set the private or group Telegram chat ID for each recipient below.'}
       </p>
       <ul className="flex flex-col gap-2">
         {targets.map((target) => (
-          <li key={target} className="flex items-center justify-between gap-3">
-            <span dir="ltr">{/^\d+$/.test(target) ? `+${target}` : target}</span>
+          <li
+            key={target}
+            className={`grid min-w-0 gap-3 rounded-md border p-3 lg:items-center ${selectedChannel === 'telegram' ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]' : 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]'}`}
+          >
+            <span dir="ltr" className="break-all">
+              {/^\d+$/.test(target) ? `+${target}` : target}
+            </span>
+            <div className="flex flex-wrap gap-3 text-sm">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={assignments[canonical(target)] === undefined}
+                  disabled={assign.isPending}
+                  onChange={(e) => {
+                    const next = { ...assignments }
+                    if (e.target.checked) delete next[canonical(target)]
+                    else next[canonical(target)] = []
+                    assign.mutate(next)
+                  }}
+                />{' '}
+                All children (default)
+              </label>
+              {assignments[canonical(target)] !== undefined &&
+                children.data
+                  ?.filter((c) => c.role !== 'parent')
+                  .map((c) => (
+                    <label key={c.id}>
+                      <input
+                        type="checkbox"
+                        disabled={assign.isPending}
+                        checked={assignments[canonical(target)].includes(c.id)}
+                        onChange={(e) => {
+                          const current = assignments[canonical(target)]
+                          assign.mutate({
+                            ...assignments,
+                            [canonical(target)]: e.target.checked
+                              ? [...current, c.id]
+                              : current.filter((id) => id !== c.id),
+                          })
+                        }}
+                      />{' '}
+                      {c.kid_name}
+                    </label>
+                  ))}
+            </div>
+            {selectedChannel === 'telegram' && (
+              <div className="grid min-w-0 gap-2">
+                <Input
+                  aria-label={`Telegram chat ID for ${target}`}
+                  placeholder="Individual or group Telegram chat ID"
+                  value={
+                    (contactDrafts[canonical(target)] ?? contacts[canonical(target)])
+                      ?.telegram_chat_id ?? ''
+                  }
+                  onChange={(e) =>
+                    setContactDrafts({
+                      ...contactDrafts,
+                      [canonical(target)]: {
+                        ...(contactDrafts[canonical(target)] ?? contacts[canonical(target)]),
+                        telegram_chat_id: e.target.value,
+                      },
+                    })
+                  }
+                />
+                <Button
+                  variant="outline"
+                  disabled={!contactDrafts[canonical(target)] || contactSave.isPending}
+                  onClick={() =>
+                    contactSave.mutate({
+                      ...contacts,
+                      [canonical(target)]: contactDrafts[canonical(target)],
+                    })
+                  }
+                >
+                  Save Telegram destination
+                </Button>
+              </div>
+            )}
             <Button
               variant="outline"
               onClick={() => change.mutate(targets.filter((value) => value !== target).join(', '))}
@@ -639,6 +844,36 @@ function ParentRecipients() {
         ))}
       </ul>
       {!targets.length && <p>No parent recipients yet.</p>}
+      {registeredParents.length > 0 && (
+        <Field
+          label="Choose a parent"
+          hint="Select their Iris account. Alert delivery selects the channel; WhatsApp alerts use their number saved in Users."
+        >
+          <Select
+            aria-label="Choose a parent"
+            value=""
+            disabled={change.isPending}
+            onChange={(event) => {
+              if (event.target.value) change.mutate([...targets, event.target.value].join(', '))
+            }}
+          >
+            <option value="">Choose a parent…</option>
+            {registeredParents.map((user) => (
+              <option
+                key={user.id}
+                value={user.email || user.whatsapp_number!}
+                disabled={targets.some((target) =>
+                  [user.email, user.whatsapp_number].some(
+                    (contact) => contact && canonical(target) === canonical(contact),
+                  ),
+                )}
+              >
+                {user.username}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
       <form
         className="flex flex-col items-start gap-3"
         onSubmit={(event) => {
@@ -647,21 +882,21 @@ function ParentRecipients() {
         }}
       >
         <Field
-          label="Parent phone number"
+          label="Parent number, email or WhatsApp group ID"
           className="w-full max-w-sm"
-          hint="Include the country code and omit the local leading zero. The + prefix is optional."
+          hint="Select a parent by their email or phone number, or add a WhatsApp group ID ending in @g.us. Alert delivery determines the channel."
         >
           <Input
             aria-label="Parent phone number"
-            type="tel"
-            inputMode="tel"
+            type="text"
+            inputMode="text"
             dir="ltr"
-            pattern="\+?[1-9](?:[0-9]|\s|\(|\)|-){5,24}"
-            title="Enter an international phone number with its country code, for example +15550100101."
+
+            title="Enter a parent email address, an international phone number, or a WhatsApp group ID."
             required
             value={phone}
             onChange={(event) => setPhone(event.target.value)}
-            placeholder="+15550100101"
+            placeholder="parent@example.com or +15550100101"
           />
         </Field>
         <Button type="submit" variant="primary" disabled={change.isPending}>
@@ -675,7 +910,13 @@ function ParentRecipients() {
   )
 }
 
-export function ParentConnections() {
+export function ParentConnections({
+  showSender = true,
+  channel,
+}: {
+  showSender?: boolean
+  channel?: string
+}) {
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['instances'],
     queryFn: () => api<Instance[]>('/api/instances'),
@@ -687,9 +928,10 @@ export function ParentConnections() {
   })
   const senderId = Number(alertSettings?.['alerts.sender_instance_id'])
   const parents = data?.filter((phone) => phone.role === 'parent' || phone.id === senderId)
+  if (!showSender) return <ParentRecipients channel={channel} />
   return (
     <div className="flex flex-col gap-4">
-      <ParentRecipients />
+      <ParentRecipients channel={channel} />
       <h2 className="text-lg font-semibold">Alert sender connections</h2>
       <p className="text-sm text-muted-foreground">
         One connected WhatsApp number sends alerts to all parent recipients. Sender connections are
@@ -706,7 +948,7 @@ export function ParentConnections() {
       {isError && <Button onClick={() => void refetch()}>Retry loading sender connections</Button>}
       <ul className="flex flex-col gap-4">
         {parents?.map((phone) => (
-          <PhoneCard key={phone.id} i={phone} />
+          <PhoneCard key={phone.id} i={phone} senderConnection />
         ))}
       </ul>
       {parents?.length === 0 && <p>No alert sender connected yet.</p>}

@@ -25,7 +25,8 @@ async def sweep_media(
     """
     async with factory() as db:
         days = int(await get_setting(db, "media.retention_days"))
-        cutoff = datetime.now(UTC) - timedelta(days=days)
+        hours = int(await get_setting(db, "media.retention_hours"))
+        cutoff = datetime.now(UTC) - (timedelta(hours=hours) if hours else timedelta(days=days))
         await db.execute(
             update(StoredMedia).where(StoredMedia.created_at < cutoff).values(purge=True)
         )

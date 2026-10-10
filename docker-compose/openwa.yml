@@ -6,14 +6,23 @@
 name: openwa
 services:
   openwa:
-    image: ghcr.io/rmyndharis/openwa:latest   # pin a release number for repeatable installs
+    image: ${OPENWA_IMAGE:?Set OPENWA_IMAGE to a tested image digest}
     container_name: openwa
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
     # Published on localhost only. Put a TLS reverse proxy in front to reach it from elsewhere.
     ports: ["127.0.0.1:${OPENWA_PORT:-2785}:2785"]
     volumes:
       - openwa-data:/app/data   # API key, sessions (your WhatsApp logins), database, media
     environment:
       NODE_ENV: production
+      CHAT_MEDIA_ARCHIVE_ENABLED: "${OPENWA_MEDIA_ARCHIVE_ENABLED:-false}"
+      CHAT_MEDIA_ARCHIVE_OUTBOUND: "${OPENWA_MEDIA_ARCHIVE_OUTBOUND:-false}"
+      CHAT_MEDIA_ARCHIVE_TTL_DAYS: "${OPENWA_MEDIA_ARCHIVE_TTL_DAYS:-0}"
+      MEDIA_DOWNLOAD_ENABLED: "true"
+      MEDIA_DOWNLOAD_TIMEOUT_MS: "${OPENWA_MEDIA_DOWNLOAD_TIMEOUT_MS:-60000}"
+      INBOUND_MEDIA_CONCURRENCY: "${OPENWA_MEDIA_CONCURRENCY:-2}"
+      PUPPETEER_PROTOCOL_TIMEOUT_MS: "${OPENWA_PROTOCOL_TIMEOUT_MS:-120000}"
       TZ: ${TZ:-UTC}
       # Plain HTTP on localhost would otherwise render a blank dashboard. Remove this line when a
       # TLS proxy is in front.

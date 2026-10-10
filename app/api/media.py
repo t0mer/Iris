@@ -1,22 +1,28 @@
 """/api/media: kept media, shown only to a signed-in owner and always streamed by Iris."""
 
+import asyncio
 import re
+import secrets
 from collections.abc import AsyncIterator
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.background import BackgroundTask
 
 from app.config import Settings, get_settings
 from app.db.models import Alert, Message, StoredMedia
 from app.deps import get_db
+from app.jobs.queue import PermanentError, TransientError
 from app.media.factory import build_store, overrides_for
-from app.media.sniff import INLINE_TYPES
+from app.media.fetch import MediaSkipped, fetch_original, job_tmpdir
+from app.media.records import stored_for
+from app.media.sniff import INLINE_TYPES, sniff_file
 from app.media.store import MediaStore, MediaStoreError
-from app.security.auth import current_user
+from app.security.auth import current_user, parent_user
 
 router = APIRouter(prefix="/api/media", tags=["media"], dependencies=[Depends(current_user)])
 DB = Annotated[AsyncSession, Depends(get_db)]
@@ -144,9 +150,79 @@ async def media_file(
     )
 
 
-@router.delete("")
+@router.delete("", dependencies=[Depends(parent_user)])
 async def delete_all_media(db: DB) -> dict[str, int]:
     """Stop showing every kept file now; the sweeper deletes the objects within a minute."""
     result = await db.execute(update(StoredMedia).values(purge=True))
     await db.commit()
     return {"scheduled": int(result.rowcount)}  # type: ignore[attr-defined]
+
+
+@router.get("/message/{message_id}")
+async def original_media(
+    message_id: int,
+    db: DB,
+    cfg: Cfg,
+    range_: Annotated[str | None, Header(alias="Range")] = None,
+) -> Response:
+    """View OpenWA's existing copy without changing messages or the retention policy."""
+    message = await db.get(Message, message_id)
+    if message is None or message.redacted or message.revoked_at:
+        raise HTTPException(404, "Media unavailable")
+    # Use the retained, checked copy before depending on WhatsApp's expiring cache.
+    kept = await stored_for(db, message_id)
+    if kept is not None:
+        try:
+            return await media_file(kept.id, db, cfg, range_)
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+    temporary = job_tmpdir(cfg.data_dir, "view-" + secrets.token_hex(16))
+    tmp = await temporary.__aenter__()
+
+    async def cleanup() -> None:
+        await temporary.__aexit__(None, None, None)
+
+    try:
+        try:
+            path = tmp / "media.bin"
+            await fetch_original(
+                db, message, cfg.key_bytes, path, max_bytes=250 * 1024 * 1024, recover=True
+            )
+            found = await asyncio.to_thread(sniff_file, path)
+            if found is None:
+                raise HTTPException(415, "This media format cannot be displayed safely")
+        except BaseException:
+            await cleanup()
+            raise
+    except PermanentError as exc:
+        reason = str(exc)
+        if "API key" in reason:
+            raise HTTPException(
+                503, "The OpenWA media connection needs its API key checked."
+            ) from exc
+        if "media reference" in reason:
+            detail = "Only message metadata is available; no original media reference was saved."
+        else:
+            detail = (
+                "OpenWA has no saved copy of this media. It was omitted or removed. "
+                "Open the original WhatsApp chat to view it."
+            )
+        raise HTTPException(404, detail) from exc
+    except MediaSkipped as exc:
+        raise HTTPException(413, "Media exceeds the 250 MB viewing limit") from exc
+    except TransientError as exc:
+        raise HTTPException(503, "OpenWA media is temporarily unavailable") from exc
+    headers = {
+        "Cache-Control": "private, no-store",
+        "Accept-Ranges": "bytes",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; sandbox",
+    }
+    if found[0] not in INLINE_TYPES:
+        headers["Content-Disposition"] = (
+            f'attachment; filename="iris-media-{message_id}.{found[1]}"'
+        )
+    return FileResponse(
+        path, media_type=found[0], headers=headers, background=BackgroundTask(cleanup)
+    )

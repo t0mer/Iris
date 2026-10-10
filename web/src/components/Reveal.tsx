@@ -23,6 +23,7 @@ export function RevealButton({
       type="button"
       variant="outline"
       size="sm"
+      title={revealed ? `Hide ${label}` : `Show ${label}`}
       aria-label={context ? `${revealed ? 'Hide' : 'Show'} ${label}, ${context}` : undefined}
       onClick={onToggle}
       className={className}

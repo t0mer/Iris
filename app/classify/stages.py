@@ -1,5 +1,6 @@
 """Pluggable classification stages (spec 8.4). New stages (LLM judge, video frames) plug in here."""
 
+import json
 import time
 from dataclasses import dataclass
 from datetime import timedelta
@@ -9,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.classify.moderation import ModerationResult
+from app.classify.ollama import OllamaModerator
 from app.classify.thresholds import Band, Thresholds, band_for
 from app.db.models import Message
 
@@ -32,6 +34,7 @@ class StageContext:
     context_max_age: timedelta
     # JPEG data URL of the message's image/sticker, when it has one.
     image_data_url: str | None = None
+    learning_examples: list[dict[str, Any]] | None = None
 
 
 @dataclass
@@ -60,7 +63,7 @@ class Stage(Protocol):
 def message_body(m: Message) -> str:
     """What was said: text/caption and, for voice/video, the transcript."""
     parts = [p for p in (m.text, m.transcript) if p]
-    return "\n".join(parts)
+    return "\n".join(parts).strip()
 
 
 def _image_part(data_url: str) -> dict[str, Any]:
@@ -82,9 +85,13 @@ async def _moderate(
     payload: str | list[dict[str, Any]],
     ctx: StageContext,
     context_ids: list[int] | None = None,
+    target_id: int | None = None,
 ) -> StageResult:
     started = time.perf_counter()
-    res = await ctx.moderator.moderate(ctx.model, payload)
+    if ctx.learning_examples and isinstance(ctx.moderator, OllamaModerator):
+        res = await ctx.moderator.moderate(ctx.model, payload, examples=ctx.learning_examples)
+    else:
+        res = await ctx.moderator.moderate(ctx.model, payload)
     band, high, low = band_for(res.scores, ctx.thresholds)
     return StageResult(
         stage=stage,
@@ -108,13 +115,15 @@ class ModerationStage:
         if not body and ctx.image_data_url is None:
             return None
         kind, payload = build_input(body, ctx.image_data_url)
-        return await _moderate(self.name, kind, payload, ctx)
+        return await _moderate(self.name, kind, payload, ctx, target_id=message.id)
 
 
 def _line(m: Message) -> str:
     sender = m.sender_name or "?"
     body = "[redacted]" if m.redacted else (message_body(m) or f"[{m.type}]")
-    return f"{sender}: {body[:MAX_LINE_CHARS]}"
+    return json.dumps(
+        {"sender": sender[:255], "content": body[:MAX_LINE_CHARS]}, ensure_ascii=False
+    )
 
 
 def build_context_input(previous: list[Message], target: Message) -> str:
@@ -140,6 +149,7 @@ class ContextStage:
                         .where(
                             Message.chat_id == message.chat_id,
                             Message.id != message.id,
+                            Message.revoked_at.is_(None),
                             Message.sent_at >= cutoff,
                             Message.sent_at <= message.sent_at,
                         )
@@ -157,4 +167,4 @@ class ContextStage:
         kind, payload = build_input(
             text, ctx.image_data_url
         )  # the image rides along with the context
-        return await _moderate(self.name, kind, payload, ctx, [m.id for m in previous])
+        return await _moderate(self.name, kind, payload, ctx, [m.id for m in previous], message.id)

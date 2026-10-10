@@ -13,11 +13,17 @@ const BAND: Record<string, { label: string; tone: 'success' | 'warning' | 'dange
 }
 
 /** How Iris decided: one card per stage, with the score for every category that registered. */
-export function ClassificationCards({ items }: { items: Classification[] }) {
+export function ClassificationCards({
+  items,
+  emptyReason,
+}: {
+  items: Classification[]
+  emptyReason?: string
+}) {
   if (items.length === 0)
     return (
       <p className="rounded-lg border bg-surface p-4 text-sm text-muted-foreground">
-        Not checked yet. Iris classifies new messages within a few seconds.
+        {emptyReason || 'Not checked yet. Iris classifies new messages within a few seconds.'}
       </p>
     )
   return (

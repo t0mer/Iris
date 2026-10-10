@@ -68,7 +68,7 @@ export function FilterBar({
   )
 }
 
-/** A row of single-choice chips (for status, date ranges). Scrolls sideways instead of wrapping. */
+/** Single-choice chips (for status, date ranges), wrapping to keep every option visible. */
 export function Chips<T extends string>({
   label,
   value,
@@ -81,11 +81,7 @@ export function Chips<T extends string>({
   onChange: (v: T) => void
 }) {
   return (
-    <div
-      role="group"
-      aria-label={label}
-      className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-0.5 md:mx-0 md:px-0"
-    >
+    <div role="group" aria-label={label} className="flex max-w-full flex-wrap gap-1.5 pb-0.5">
       {options.map((o) => (
         <button
           key={o.value}

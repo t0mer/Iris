@@ -61,7 +61,7 @@
 }
 
 @theme inline {
-  --font-sans: 'Rubik Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Rubik Variable', sans-serif;
   --color-background: var(--background);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
@@ -96,7 +96,9 @@
     color: var(--foreground);
     font-family: var(--font-sans);
     font-size: 15px;
-    line-height: 1.5;
+    line-height: 1.6;
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
     font-feature-settings: 'tnum' 0;
     text-rendering: optimizeLegibility;
   }

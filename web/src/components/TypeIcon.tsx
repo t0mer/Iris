@@ -1,4 +1,5 @@
 import {
+  BarChart3,
   FileText,
   Headphones,
   Image,
@@ -11,6 +12,7 @@ import {
 } from 'lucide-react'
 
 const ICONS: Record<string, LucideIcon> = {
+  poll: BarChart3,
   text: MessageSquare,
   image: Image,
   audio: Headphones,

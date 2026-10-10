@@ -4,6 +4,7 @@ import asyncio
 import hmac
 from collections.abc import AsyncIterator, MutableMapping
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -21,16 +22,22 @@ from app.api import (
     database,
     instances,
     jobs,
+    learning,
     media,
     messages,
+    operations,
     pairing,
+    setup,
     stats,
     system,
+    users,
 )
 from app.api import (
     events as events_api,
 )
 from app.api import settings as settings_api
+from app.audit import AuditMiddleware
+from app.audit import install as install_audit
 from app.config import get_settings
 from app.db import events_hook
 from app.db.engine import make_engine, make_session_factory
@@ -45,8 +52,7 @@ from app.jobs.worker import WorkerPool
 from app.logging import setup_logging
 from app.metrics import render as render_metrics
 from app.providers import Providers
-from app.retention import retention_loop
-from app.security.auth import bootstrap_admin, current_user
+from app.security.auth import admin_user, bootstrap_admin
 from app.version import VERSION
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -82,16 +88,29 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         raise
     events_hook.install()
+    install_audit()
     engine = make_engine(config=db_config)
     app.state.engine = engine
     app.state.db_running, app.state.db_source = db_config.with_defaults(), db_source
     app.state.session_factory = make_session_factory(engine)
     async with app.state.session_factory() as session:
         await bootstrap_admin(session, settings)
+        from app.alerts.bootstrap import bootstrap_notifications
+
+        await bootstrap_notifications(session, settings)
         from app.settings_store import reload_runtime_settings
 
         await reload_runtime_settings(session)
         settings = get_settings()
+        if settings.local_safety_mode:
+            from app.legacy_review import quarantine_legacy_unknowns
+            from app.settings_store import get_setting, set_setting
+
+            if not await get_setting(session, "alerts.review_notify_since"):
+                await set_setting(
+                    session, "alerts.review_notify_since", datetime.now(UTC).isoformat()
+                )
+            await quarantine_legacy_unknowns(session)
     providers = Providers()
     pool = WorkerPool(
         Deps(
@@ -105,16 +124,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.state.workers = pool
     await pool.start()
-    cleanup = (
-        asyncio.create_task(retention_loop(app.state.session_factory)) if settings.workers else None
-    )
     pairing_cleanup = asyncio.create_task(pairing.cleanup_loop(app.state.session_factory))
     yield
     pairing_cleanup.cancel()
     await asyncio.gather(pairing_cleanup, return_exceptions=True)
-    if cleanup is not None:
-        cleanup.cancel()
-        await asyncio.gather(cleanup, return_exceptions=True)
     await bus.close_all()  # end every open live stream so shutdown is not held up
     await pool.stop()
     await providers.aclose()
@@ -158,9 +171,12 @@ def create_app() -> FastAPI:
     )
 
     app.add_middleware(SecurityHeaders)
+    app.add_middleware(AuditMiddleware)
 
     app.include_router(system.router)
+    app.include_router(setup.router)
     app.include_router(auth.router)
+    app.include_router(users.router)
     app.include_router(instances.router)
     app.include_router(pairing.router)
     app.include_router(messages.router)
@@ -169,9 +185,11 @@ def create_app() -> FastAPI:
     app.include_router(stats.router)
     app.include_router(settings_api.router)
     app.include_router(classify.router)
+    app.include_router(learning.router)
     app.include_router(database.router)
     app.include_router(media.router)
     app.include_router(events_api.router)
+    app.include_router(operations.router)
     app.include_router(webhooks.router)
 
     @app.get("/metrics", include_in_schema=False)
@@ -187,11 +205,11 @@ def create_app() -> FastAPI:
         return Response(body, media_type="text/plain; version=0.0.4; charset=utf-8")
 
     @app.get("/api/openapi.json", include_in_schema=False)
-    async def openapi_schema(_: Annotated[User, Depends(current_user)]) -> JSONResponse:
+    async def openapi_schema(_: Annotated[User, Depends(admin_user)]) -> JSONResponse:
         return JSONResponse(app.openapi())
 
     @app.get("/api/docs", include_in_schema=False)
-    async def docs(_: Annotated[User, Depends(current_user)]) -> HTMLResponse:
+    async def docs(_: Annotated[User, Depends(admin_user)]) -> HTMLResponse:
         return get_swagger_ui_html(openapi_url="/api/openapi.json", title="Iris API")
 
     @app.get("/{path:path}", include_in_schema=False)
@@ -207,9 +225,13 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404) from None
         if is_asset:
             return FileResponse(candidate)
+        if path.startswith("assets/"):
+            # A tab opened before an update may request an obsolete hashed chunk.
+            # HTML is not a valid JavaScript response; do not hide this as SPA routing.
+            raise HTTPException(status_code=404)
         index = STATIC_DIR / "index.html"
         if index.is_file():
-            return FileResponse(index)
+            return FileResponse(index, headers={"Cache-Control": "no-store"})
         return JSONResponse({"detail": "UI not built"}, status_code=404)
 
     return app

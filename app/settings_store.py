@@ -3,16 +3,19 @@
 Secrets are AES-256-GCM encrypted at rest and never returned by the API (only `{"set": bool}`).
 """
 
+import math
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.alerts.recipients import validate_recipients
+from app.alerts.recipients import recipients, validate_recipients
 from app.classify.thresholds import validate_thresholds
+from app.config import validate_public_base_url
 from app.db.models import Setting
 from app.media.s3 import validate_endpoint
 from app.security.crypto import decrypt, encrypt
@@ -40,6 +43,14 @@ def _str(v: Any) -> str:
 
 def _opt_str(v: Any) -> str | None:
     return None if v is None or v == "" else _str(v)
+
+
+def _similarity(v: Any) -> float:
+    if isinstance(v, bool) or not isinstance(v, int | float) or not math.isfinite(v):
+        raise ValueError("must be a number between 0 and 1")
+    if not 0 <= v <= 1:
+        raise ValueError("must be a number between 0 and 1")
+    return float(v)
 
 
 def _opt_int(v: Any) -> int | None:
@@ -143,6 +154,8 @@ def _provider_url(v: Any) -> str | None:
 
 
 RUNTIME_FIELDS = (
+    "public_base_url",
+    "webhook_base_url",
     "classification_provider",
     "ollama_base_url",
     "ollama_model",
@@ -168,7 +181,118 @@ def _phone_roles(value: Any) -> dict[str, str]:
     return dict(value)
 
 
+def _timestamp(value: Any) -> str | None:
+    value = _opt_str(value)
+    if value is None:
+        return None
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        raise ValueError("timestamp must include a timezone")
+    return parsed.astimezone(UTC).isoformat()
+
+
+def _recipient_children(value: Any) -> dict[str, list[int]]:
+    if not isinstance(value, dict):
+        raise ValueError("must map parent numbers to child ID lists")
+    clean = {}
+    for parent, children in value.items():
+        targets = recipients(parent) if isinstance(parent, str) else []
+        if (
+            len(targets) != 1
+            or not isinstance(children, list)
+            or any(
+                isinstance(child, bool) or not isinstance(child, int) or child < 1
+                for child in children
+            )
+        ):
+            raise ValueError("each parent needs one valid number and positive child IDs")
+        clean[targets[0]] = sorted(set(children))
+    return clean
+
+
+def _recipient_contacts(value: Any) -> dict[str, dict[str, str]]:
+    from app.security.two_factor import email_address
+
+    if not isinstance(value, dict):
+        raise ValueError("must map parent numbers to notification contacts")
+    clean = {}
+    for parent, contact in value.items():
+        targets = recipients(parent) if isinstance(parent, str) else []
+        if len(targets) != 1 or not isinstance(contact, dict):
+            raise ValueError("invalid parent notification contact")
+        if set(contact) - {"email", "telegram_chat_id"}:
+            raise ValueError("unknown contact field")
+        result = {}
+        if contact.get("email") and not isinstance(contact["email"], str):
+            raise ValueError("Email must be a string")
+        if contact.get("email"):
+            result["email"] = str(email_address(contact["email"]))
+        if contact.get("telegram_chat_id"):
+            chat_id = str(contact["telegram_chat_id"])
+            if not re.fullmatch(r"-?[0-9]{1,20}", chat_id):
+                raise ValueError("Telegram chat ID must be numeric")
+            result["telegram_chat_id"] = chat_id
+        clean[targets[0]] = result
+    return clean
+
+
+def _telegram_token(value: Any) -> str | None:
+    value = _opt_secret(value)
+    if value and not re.fullmatch(r"[0-9]{5,20}:[A-Za-z0-9_-]{20,100}", value):
+        raise ValueError("Enter a Telegram bot token from BotFather")
+    return str(value) if value is not None else None
+
+
+def _schedules(value: Any) -> dict[str, Any]:
+    from app.schedules import CATALOG
+
+    if not isinstance(value, dict):
+        raise ValueError("Schedules must be an object")
+    clean = {}
+    for key, config in value.items():
+        if key not in CATALOG or not isinstance(config, dict):
+            raise ValueError("Unknown schedule")
+        recovery_fields = {"retry_count", "retry_wait_minutes", "notify_wait_minutes"}
+        allowed = {"enabled", "interval", "time"} | (
+            recovery_fields if key == "connections" else set()
+        )
+        if set(config) - allowed:
+            raise ValueError("Unknown schedule option")
+        result: dict[str, Any] = {}
+        if "enabled" in config:
+            result["enabled"] = _bool(config["enabled"])
+        if "interval" in config:
+            if CATALOG[key]["interval"] is None:
+                raise ValueError("This schedule does not use an interval")
+            result["interval"] = _int_range(15, 86400)(config["interval"])
+        if "time" in config:
+            if (
+                key != "daily_summary"
+                or not isinstance(config["time"], str)
+                or not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", config["time"])
+            ):
+                raise ValueError("Daily summary time must be HH:MM")
+            result["time"] = config["time"]
+        for field in recovery_fields:
+            if field in config:
+                result[field] = _int_range(
+                    0 if field == "retry_count" else 1, 10 if field == "retry_count" else 1440
+                )(config[field])
+        clean[key] = result
+    return clean
+
+
 REGISTRY: dict[str, Spec] = {
+    "openwa.webhook_attempts": Spec(3, _int_range(1, 5)),
+    "openwa.recovery_enabled": Spec(True, _bool),
+    "openwa.recovery_hours": Spec(24, _int_range(1, 720)),
+    "schedules.config": Spec({}, _schedules),
+    "runtime.webhook_base_url": Spec(
+        None, lambda v: None if v is None or v == "" else validate_public_base_url(_str(v))
+    ),
+    "runtime.public_base_url": Spec(
+        None, lambda v: None if v is None else validate_public_base_url(_str(v))
+    ),
     "phones.roles": Spec({}, _phone_roles),
     "phones.session_names": Spec(
         {}, lambda value: {str(int(k)): str(v)[:100] for k, v in dict(value or {}).items()}
@@ -207,18 +331,35 @@ REGISTRY: dict[str, Spec] = {
     ),
     "openai.api_key": Spec(None, _opt_secret, secret=True),
     "classification.model": Spec("omni-moderation-latest", _str),
+    "classification.learning_mode": Spec("off", _choice("off", "shadow", "active")),
+    "classification.learning_retrieval": Spec("lexical", _choice("lexical", "semantic")),
+    "classification.learning_embedding_model": Spec(None, _opt_str),
+    "classification.learning_min_similarity": Spec(0.7, _similarity),
     "classification.thresholds": Spec({}, _thresholds),
     "classification.context_window_size": Spec(8, _int_range(1, 20)),
     "classification.context_max_age_hours": Spec(6, _int_range(1, 168)),
     "scope.monitor_from_me": Spec(True, _bool),
     "scope.monitor_direct": Spec(True, _bool),
     "scope.monitor_groups": Spec(True, _bool),
+    "retention.message_hours": Spec(0, _int_range(0, 87600)),
+    "media.retention_hours": Spec(0, _int_range(0, 87600)),
     "retention.message_days": Spec(90, _int_range(1, 3650)),
     "retention.alert_days": Spec(365, _int_range(1, 3650)),
     "alerts.sender_instance_id": Spec(None, _opt_int),
     "alerts.recipient": Spec(None, lambda v: validate_recipients(_opt_str(v))),
+    "auth.default_channel": Spec("email", _choice("email", "whatsapp")),
+    "alerts.channel": Spec("openwa", _choice("openwa", "telegram", "smtp", "greenapi")),
+    "alerts.recipient_contacts": Spec({}, _recipient_contacts),
+    "alerts.telegram_bot_token": Spec(None, _telegram_token, secret=True),
+    "alerts.recipient_children": Spec({}, _recipient_children),
+    "alerts.review_notify_since": Spec(None, _timestamp),
+    "alerts.review_buttons": Spec(False, _bool),
+    "alerts.notification_style": Spec("summary", _choice("summary", "detailed")),
+    "alerts.send_interval_seconds": Spec(30, _int_range(5, 3600)),
+    "alerts.send_hourly_limit": Spec(60, _int_range(1, 1000)),
+    "alerts.send_daily_limit": Spec(250, _int_range(1, 10000)),
     "alerts.cooldown_minutes": Spec(10, _int_range(0, 1440)),
-    "alerts.alert_on_review": Spec(False, _bool),
+    "alerts.alert_on_review": Spec(True, _bool),
     "alerts.notify_changes": Spec(True, _bool),
     "alerts.timezone": Spec("Asia/Jerusalem", _timezone),
     "media.policy": Spec("off", _choice("off", "harmful", "harmful_review", "all")),
@@ -231,6 +372,8 @@ REGISTRY: dict[str, Spec] = {
     "media.s3_prefix": Spec("iris/", _prefix),
     "media.s3_path_style": Spec(True, _bool),
     "media.retention_days": Spec(30, _int_range(1, 3650)),
+    "media.recovery_attempts": Spec(1, _int_range(0, 3)),
+    "media.recovery_wait_seconds": Spec(5, _int_range(0, 30)),
 }
 
 

@@ -13,20 +13,18 @@ from urllib.parse import quote, urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
-from app.db.models import Instance
+from app.db.models import Instance, Message, MessageReceipt, Setting, StoredMedia
 from app.deps import get_db
 from app.openwa.client import OpenWAClient, OpenWAError
-from app.security.auth import current_user
+from app.security.auth import admin_user
 from app.security.crypto import decrypt, encrypt
 from app.settings_store import get_setting, set_setting
 
-router = APIRouter(
-    prefix="/api/instances", tags=["instances"], dependencies=[Depends(current_user)]
-)
+router = APIRouter(prefix="/api/instances", tags=["instances"], dependencies=[Depends(admin_user)])
 
 DB = Annotated[AsyncSession, Depends(get_db)]
 Cfg = Annotated[Settings, Depends(get_settings)]
@@ -75,6 +73,8 @@ class InstancePatch(BaseModel):
 
 
 class InstanceOut(BaseModel):
+    monitoring_status: str = "unchecked"
+    monitoring_error: str | None = None
     connection_status: str = "unknown"
     connection_checked_at: datetime | None = None
     session_name: str | None = None
@@ -102,7 +102,7 @@ def to_out(
         openwa_instance_id=i.openwa_instance_id,
         api_key_set=bool(i.openwa_api_key_enc),
         enabled=i.enabled,
-        webhook_url=f"{settings.public_base_url}/webhooks/{i.webhook_token}",
+        webhook_url=f"{settings.webhook_url_base}/webhooks/{i.webhook_token}",
         last_webhook_at=i.last_webhook_at,
         created_at=i.created_at,
         role=role,
@@ -122,6 +122,10 @@ async def instance_out(db: AsyncSession, instance: Instance, settings: Settings)
     detail = session_details.get(instance.id)
     if detail:
         result.connection_status, result.connection_checked_at = detail
+    monitoring = await db.get(Setting, f"internal.webhook_status.{instance.id}")
+    if monitoring:
+        result.monitoring_status = str(monitoring.value.get("status", "unchecked"))
+        result.monitoring_error = monitoring.value.get("error")
     return result
 
 
@@ -192,12 +196,20 @@ async def create_instance(body: InstanceIn, db: DB, settings: Cfg) -> InstanceOu
         if body.openwa_api_key
         else None,
         webhook_token=secrets.token_urlsafe(32),
+        signature_required=True,
         enabled=False if body.role == "parent" else body.enabled,
     )
     await clear_missing_sender(db)
     db.add(inst)
     await db.commit()
     await save_role(db, inst, body.role)
+    if body.role != "parent":
+        await save_webhook_status(
+            db,
+            inst.id,
+            "failed",
+            "Register the signed webhook in OpenWA before monitoring can receive messages",
+        )
     return await instance_out(db, inst, settings)
 
 
@@ -332,9 +344,42 @@ async def remove_openwa_stage(
 
 @router.delete("/{instance_id}", status_code=204)
 async def delete_instance(
-    instance_id: int, db: DB, settings: Cfg, delete_openwa: bool = False
+    instance_id: int,
+    db: DB,
+    settings: Cfg,
+    delete_openwa: bool = False,
+    delete_messages: bool = False,
 ) -> None:
     inst = await _get(db, instance_id)
+    if delete_messages:
+        roles = await get_setting(db, "phones.roles")
+        if (
+            roles.get(str(instance_id)) == "parent"
+            or await get_setting(db, "alerts.sender_instance_id") == instance_id
+        ):
+            raise HTTPException(
+                422, "Deleting messages is not available for alert sender connections"
+            )
+        # Shared messages belong to other connected phones too; delete only exclusive ones.
+        others = select(MessageReceipt.message_id).where(MessageReceipt.instance_id != instance_id)
+        ids = list(
+            (
+                await db.execute(
+                    select(MessageReceipt.message_id)
+                    .join(Message, Message.id == MessageReceipt.message_id)
+                    .where(
+                        Message.from_me.is_(False),
+                        MessageReceipt.instance_id == instance_id,
+                        MessageReceipt.message_id.not_in(others),
+                    )
+                )
+            ).scalars()
+        )
+        if ids:
+            await db.execute(
+                update(StoredMedia).where(StoredMedia.message_id.in_(ids)).values(purge=True)
+            )
+            await db.execute(delete(Message).where(Message.id.in_(ids)))
     if delete_openwa:
         await _remove_openwa(inst, db, settings, "all")
     if await get_setting(db, "alerts.sender_instance_id") == instance_id:
@@ -343,6 +388,15 @@ async def delete_instance(
     await db.commit()
     roles = dict(await get_setting(db, "phones.roles"))
     roles.pop(str(instance_id), None)
+    assignments = await get_setting(db, "alerts.recipient_children")
+    await set_setting(
+        db,
+        "alerts.recipient_children",
+        {
+            parent: [child for child in children if child != instance_id]
+            for parent, children in assignments.items()
+        },
+    )
     names = dict(await get_setting(db, "phones.session_names"))
     names.pop(str(instance_id), None)
     await set_setting(db, "phones.session_names", names)
@@ -430,11 +484,24 @@ async def check_session(instance_id: int, db: DB, settings: Cfg) -> InstanceOut:
 async def rotate_token(instance_id: int, db: DB, settings: Cfg) -> InstanceOut:
     inst = await _get(db, instance_id)
     inst.webhook_token = secrets.token_urlsafe(32)  # the old URL stops working immediately
-    inst.signature_required = (
-        False  # the secret is derived from the token: re-register to sign again
+    inst.signature_required = True  # fail closed until the new secret is registered
+    await save_webhook_status(
+        db, inst.id, "failed", "Webhook token rotated; register the webhook again"
     )
-    await db.commit()
     return await instance_out(db, inst, settings)
+
+
+async def save_webhook_status(
+    db: AsyncSession, instance_id: int, status: str, error: str | None
+) -> None:
+    key = f"internal.webhook_status.{instance_id}"
+    row = await db.get(Setting, key)
+    value = {"status": status, "error": error}
+    if row is None:
+        db.add(Setting(key=key, value=value, is_secret=False))
+    else:
+        row.value = value
+    await db.commit()
 
 
 @router.post("/{instance_id}/register-webhook")
@@ -448,18 +515,23 @@ async def register_webhook(instance_id: int, db: DB, settings: Cfg) -> dict[str,
     try:
         webhook_id = await client.register_webhook(
             inst.openwa_instance_id,
-            f"{settings.public_base_url}/webhooks/{inst.webhook_token}",
+            f"{settings.webhook_url_base}/webhooks/{inst.webhook_token}",
             webhook_secret(settings, inst.webhook_token),
+            retry_count=int(await get_setting(db, "openwa.webhook_attempts")),
         )
     except OpenWAError as exc:
         hint = ""
         if exc.status == 400 and "not allowed" in exc.message.lower():
             hint = (
-                " (OpenWA blocks private-network webhook targets: expose Iris on a public hostname)"
+                " (WhatsApp pairing is separate. Set an allowed, reachable OpenWA webhook "
+                "base URL in Settings > Alerts, or allow that destination in OpenWA "
+                "SSRF_ALLOWED_HOSTS.)"
             )
-        raise HTTPException(status_code=502, detail=f"OpenWA: {exc.message}{hint}") from exc
+        error = f"OpenWA: {exc.message}{hint}"
+        await save_webhook_status(db, inst.id, "failed", error)
+        raise HTTPException(status_code=502, detail=error) from exc
     finally:
         await client.aclose()
     inst.signature_required = True
-    await db.commit()
+    await save_webhook_status(db, inst.id, "registered", None)
     return {"webhook_id": webhook_id}

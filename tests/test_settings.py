@@ -136,6 +136,25 @@ async def test_alert_test_button_sends_a_real_message_with_entered_values(app_cl
         assert b"972501234567@c.us" in sent.content
         text = json.loads(sent.content)["text"]
         assert "Alert delivery is working" in text and is_own_alert(text, get_settings().key_bytes)
+        limited = (
+            await app_client.post(
+                "/api/settings/test/alert",
+                json={"sender_instance_id": inst["id"], "recipient": "972501234567"},
+            )
+        ).json()
+        assert not limited["ok"] and "Sending limit reached" in limited["detail"]
+        assert route.call_count == 1
+        from datetime import UTC, datetime, timedelta
+
+        from sqlalchemy import update
+
+        from app.db.models import SendingBudget
+
+        async with app_client.app.state.session_factory() as db:
+            await db.execute(
+                update(SendingBudget).values(next_allowed=datetime.now(UTC) - timedelta(seconds=1))
+            )
+            await db.commit()
         route.mock(return_value=httpx.Response(400, json={"message": "Session is not active"}))
         bad = (
             await app_client.post(
@@ -152,7 +171,7 @@ async def test_alert_test_button_sends_a_real_message_with_entered_values(app_cl
 async def test_alert_settings_defaults_and_validation(app_client: Any) -> None:
     s = (await app_client.get("/api/settings")).json()
     assert s["alerts.cooldown_minutes"] == 10 and s["alerts.timezone"] == "Asia/Jerusalem"
-    assert s["alerts.alert_on_review"] is False
+    assert s["alerts.alert_on_review"] is True
     for bad in (
         {"alerts.timezone": "Mars/Base"},
         {"alerts.cooldown_minutes": -1},

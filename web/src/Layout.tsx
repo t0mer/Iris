@@ -7,6 +7,7 @@ import { IrisMark } from './components/IrisMark'
 import { InstallApp } from './components/InstallApp'
 import { LiveStatus } from './components/LiveStatus'
 import { PageLoading } from './components/PageLoading'
+import { PageBoundary } from './components/PageBoundary'
 import { NAV, TAB_BAR, type NavItem } from './components/nav'
 import { Button } from './components/ui/button'
 import { Dialog, DialogContent, DialogTrigger } from './components/ui/dialog'
@@ -36,9 +37,11 @@ const THEMES: { value: Theme; label: string; icon: typeof Sun }[] = [
 const withoutCount = (title: string) => title.replace(/^\(\d+\) /, '')
 
 function useShellData() {
+  const { data: me } = useMe()
   const { data: stats } = useQuery({
-    queryKey: ['stats'],
+    queryKey: ['stats', me?.id],
     queryFn: () => api<Stats>('/api/stats'),
+    enabled: !!me,
     refetchInterval: 60_000,
   })
   const { data: version } = useQuery({
@@ -144,6 +147,7 @@ function AccountMenu({ wide, version }: { wide: boolean; version?: string }) {
 }
 
 function Sidebar({ stats, version, live }: { stats?: Stats; version?: string; live: Status }) {
+  const { data: me } = useMe()
   const wide = useIsWide()
   const groups = [
     { key: 'watch', title: 'Watch' },
@@ -166,16 +170,18 @@ function Sidebar({ stats, version, live }: { stats?: Stats; version?: string; li
         {wide && <span className="text-lg font-semibold tracking-tight text-foreground">Iris</span>}
       </div>
       <nav aria-label="Main" className="flex flex-1 flex-col gap-5 overflow-y-auto">
-        {groups.map((g) => (
-          <div key={g.key} className="flex flex-col gap-1">
-            {wide && (
-              <p className="px-3 pb-1 text-xs font-medium text-muted-foreground">{g.title}</p>
-            )}
-            {NAV.filter((n) => n.group === g.key).map((item) => (
-              <SideLink key={item.to} item={item} stats={stats} wide={wide} />
-            ))}
-          </div>
-        ))}
+        {groups
+          .filter((g) => me?.role === 'admin' || g.key === 'watch')
+          .map((g) => (
+            <div key={g.key} className="flex flex-col gap-1">
+              {wide && (
+                <p className="px-3 pb-1 text-xs font-medium text-muted-foreground">{g.title}</p>
+              )}
+              {NAV.filter((n) => n.group === g.key).map((item) => (
+                <SideLink key={item.to} item={item} stats={stats} wide={wide} />
+              ))}
+            </div>
+          ))}
       </nav>
       {wide && <LiveStatus status={live} />}
       <InstallApp compact={!wide} />
@@ -212,7 +218,9 @@ function MoreSheet({ stats, version }: { stats?: Stats; version?: string }) {
   const [open, setOpen] = useState(false)
   const [theme, setThemeState] = useState<Theme>(getTheme)
   const { pathname } = useLocation()
-  const secondary = NAV.filter((n) => !TAB_BAR.includes(n.to))
+  const secondary = NAV.filter(
+    (n) => !TAB_BAR.includes(n.to) && (me?.role === 'admin' || n.group === 'watch'),
+  )
   const active = secondary.some((n) => pathname.startsWith(n.to))
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -370,9 +378,11 @@ export function Layout() {
           tabIndex={-1}
           className="mx-auto w-full max-w-6xl flex-1 px-4 pb-24 pt-5 outline-none md:px-8 md:pb-10 md:pt-8"
         >
-          <Suspense fallback={<PageLoading />}>
-            <Outlet />
-          </Suspense>
+          <PageBoundary key={pathname}>
+            <Suspense key={pathname} fallback={<PageLoading />}>
+              <Outlet />
+            </Suspense>
+          </PageBoundary>
         </main>
       </div>
       <Toaster />

@@ -16,6 +16,55 @@ container (amd64 and arm64), and uses free or low-cost models wherever possible.
 
 ## Contents
 
+Ollama can use accepted parent text reviews as examples for future checks. Settings →
+Classification includes Off, Shadow comparison, and conservative Active learning modes.
+See the [architecture flowchart, implementation plan, and evaluation guide](OLLAMA_LEARNING.md).
+
+**IrisReview** shows messages queued for AI or being checked, with a thinking icon per message.
+Parents and admins can skip AI to move a message into human **Review**. Cancelling AI revokes its
+job lease, so a late AI result cannot overwrite a subsequent human decision. Human Review excludes
+AI work and shows Safe/Harmful actions only for unresolved decisions; response history is read-only.
+Review actions are visible directly, without an additional-options section.
+
+### Operational settings
+
+Settings → Notifications checks the selected channel against current provider readiness and
+recipient eligibility. Only explicitly selected recipients receive alerts. GreenAPI requires a verified
+provider connection but no individual phone approval. OpenWA numbers and SMTP emails require current
+approval; standalone legacy destinations remain supported. One eligible
+recipient is sufficient, while ineligible recipients stay visible in Settings and Home.
+
+Device checks can automatically refresh a disconnected child connection. Settings → Schedules controls
+the number of attempts, time between attempts, and delay before notifying parents. Defaults are one
+attempt and a ten-minute notification delay; Home shows the outage immediately.
+Chats and groups can be skipped per child with confirmation, then their history can be deleted separately.
+Review can reveal original media, queue another AI check, and copy the full saved execution trace.
+Local transcription HTTP 422 and 503 failures use bounded job retries before requiring parent review.
+Local Ollama vision models now receive images/stickers and captions together. Settings → Providers
+includes a separate Test Ollama image button that verifies model vision support and actual inference
+using a bundled sample. Saved traces identify image or text+image classifications. Missing originals,
+unsupported models and failed checks still require review; model scores are not calibrated guarantees.
+The Ollama model dropdown detects installed models from the entered server and labels vision support.
+Refresh the list or enter a custom name; detection preserves the saved choice until you explicitly save.
+Review keeps compact Safe (green), Harmful, Ignore and Chat actions visible. AI rejudging, trace copying
+and chat skipping sit under “Note: additional options.” Decision, skip and trace actions are disabled
+while that message's AI recheck is queued or running.
+Animated WebP stickers are unwrapped to their first frame for compatibility with older FFmpeg builds.
+Image conversion checks that a nonempty JPEG was produced and bounds both dimensions. This checks
+the first displayed frame, not every frame of an animation; the original remains available to view.
+
+Settings → Schedules includes daily summaries, device/webhook verification, incident notifications,
+retention, media cleanup, stale job recovery, pending alert catch-up, group names and pairing cleanup.
+Daily summaries are disabled by default. Notifications respect child assignments and sending budgets.
+Run history retains at most ten runs per schedule, reserving space for three failures within those ten;
+failed runs expire after four days. Errors and stack traces are retained with credentials redacted.
+Message, alert and media retention controls remain in Settings → Retention.
+
+Settings → Audit records user actions and committed before/after values from the update onward.
+Passwords, credentials and message content are redacted. Existing actions cannot be reconstructed.
+Group skipping is available per child from Messages, Review and Alerts, with optional history deletion
+and a resume control on Phones. Shared records remain available for the other children.
+
 - [Features](#features)
 - [How it works](#how-it-works)
 - [Requirements](#requirements)
@@ -55,7 +104,7 @@ container (amd64 and arm64), and uses free or low-cost models wherever possible.
   match highlighting.
 - **A modern, responsive portal.** A sidebar on desktop, an icon rail on tablets, and a bottom tab bar on
   phones, so an alert link opens into something you can use one-handed. Light and dark themes follow your
-  system, and the whole portal passes an automated accessibility scan (keyboard, contrast, screen readers).
+  system. Targeted tests cover accessible controls and keyboard interactions; a full automated accessibility audit has not been completed.
 - **Sexual content safety rule.** Content clearly involving minors, and sexual imagery, is withheld entirely: it
   is not stored, not searchable, not shown and not forwarded. The alert says to review the chat directly. When
   Iris is only *unsure* about a text or voice message (a low score), it keeps the words so you can read them in
@@ -112,7 +161,7 @@ Iris runs as **one process on purpose**: the queue and its locks assume it.
 ```yaml
 services:
   iris:
-    image: techblog/iris:latest
+    image: ${IRIS_IMAGE:?Set a reviewed release tag or digest}
     ports: ["8080:8080"]
     volumes:
       - iris-data:/data        # SQLite database; a named volume keeps non-root ownership
@@ -128,6 +177,8 @@ volumes:
 
 ```bash
 openssl rand -base64 32      # paste into IRIS_SECRET_KEY, and back it up
+cp docker-compose.example.yml compose.yml   # edit credentials and the image version before starting
+export IRIS_IMAGE='techblog/iris:<reviewed-release-tag>'  # replace with your tested version
 docker compose up -d
 ```
 
@@ -585,6 +636,25 @@ outside, so set `IRIS_METRICS_TOKEN` or restrict `/metrics` in your reverse prox
 
 ## Troubleshooting
 
+**Images, videos or stickers show “OpenWA has no saved copy.”** Settings > Retention now
+shows persistent archiving and bounded media recovery controls. Previews use Iris's checked,
+retained copy first, with byte-range support. If OpenWA omitted its download, Iris can ask
+WhatsApp again for the exact message among at most ten recent chat messages. Recovery has a
+25 MB limit, a 65-second deadline per attempt, and configurable attempts (0–3) and wait (0–30
+seconds). Old media that WhatsApp no longer supplies, or messages outside that recent window,
+can remain unavailable. Iris does not follow arbitrary upstream media URLs.
+
+OpenWA 0.24 catches browser media-download failures without retrying and its saved-media
+endpoint does not redownload omitted files. Persistent provider storage is configured with
+`CHAT_MEDIA_ARCHIVE_ENABLED=true` and `CHAT_MEDIA_ARCHIVE_OUTBOUND=true` in OpenWA's
+deployment; redeploy to apply. `CHAT_MEDIA_ARCHIVE_TTL_DAYS=0` disables expiry. Choose a
+provider retention window deliberately: Iris's retention does not remove provider copies.
+The bundled templates expose these as `OPENWA_MEDIA_ARCHIVE_*` variables, defaulting to off
+for compatibility. Retention's provider values are deployment-reported metadata, not a live
+API query; keep the matching `IRIS_OPENWA_ARCHIVE_*` metadata in sync when changing an
+external OpenWA deployment. The OpenWA archive controls cannot be changed through its 0.24
+settings API. Iris's own archive switch and recovery controls save immediately in Iris.
+
 **Test storage fails, or alerts go out without a media link.** Run **Test storage** under Settings > Media: it
 says whether the endpoint cannot be reached, the keys are refused, or the bucket does not exist. A failed
 upload never blocks checking or alerting; the media is simply not kept. For R2 make sure the token can write to
@@ -635,17 +705,65 @@ uv run pytest                    # unit tests: no network, providers mocked
 uv run pytest -m integration     # real OpenAI (needs TEST_* variables, see .env.example)
 
 cd web
-npm ci && npm run lint && npm test && npm run build   # builds into ../app/static
+npm ci && npm run lint && npm run format:check && npm test && npm run build   # builds into ../app/static
 npm run dev                      # Vite dev server, proxies /api to :8080
 ```
 
 Layout: `app/` is the FastAPI backend (`ingest/`, `openwa/`, `jobs/`, `media/`, `transcription/`,
-`classify/`, `alerts/`, `api/`), `web/` is the React portal, `tests/` mirrors it with real captured and
-sanitized OpenWA payloads under `tests/fixtures/openwa/`. New classification stages plug into
+`classify/`, `alerts/`, `api/`), `web/` is the React portal, `tests/` contains Python tests with real captured and
+sanitized OpenWA payloads under `tests/fixtures/openwa/`. Frontend tests mirror the React
+source under `web/tests/`, with shared setup and helpers in that folder. New classification stages plug into
 `app/classify/stages.py`.
 
 CI runs lint, type checks, tests, the portal build, a security scan, and builds the image for **both**
-linux/amd64 and linux/arm64 on every pull request.
+linux/amd64 and linux/arm64 on every pull request. Backend tests run on SQLite, PostgreSQL,
+and MySQL; frontend tests run with Vitest on Node 22. CI stores JUnit test reports as downloadable
+artifacts, including failed runs. The native transcription companion has its own tests under
+`docker-compose/local/macos/tests/` and a path-filtered workflow.
+
+Local deployment scripts, private settings and audit outputs belong to the parent workspace,
+outside this Git repository. Temporary test runs and generated reports belong under ignored
+`.local/` directories. Default test runs use isolated databases and mocked providers; tests that
+contact real services are marked `integration` and require explicit test configuration. A green
+GitHub run verifies the revision that was pushed, not subsequent uncommitted local changes.
+
+## OpenWA retry settings and missed-message recovery
+
+The Alerts page defaults to **Unseen for the signed-in account**. Opening an alert detail page
+marks it read for that account and updates its list and badge. Browsing the list or fetching a
+detail through the read-only API does not mark it read; the portal posts to
+`/api/alerts/{id}/seen` after opening the detail successfully. **Seen**, **All**, and **Dismissed**
+views retain access to existing alert records. **Mark unseen** returns an alert to your Unseen
+list. Read/dismiss state is keyed by both account and alert, and cannot clear another account's
+unseen alerts. It does not change the message's safety verdict or delete the alert. Existing
+global statuses are not attributed to individual users during migration, so older alerts start
+unseen for each account until that account opens them.
+
+OpenWA recovery is configured under **Settings → Notifications → OpenWA webhooks**:
+choose **1–5 total delivery attempts**, enable automatic catch-up, and set a **1–720 hour**
+lookback (default 24 hours). Iris applies the attempt count to its existing webhooks on the next
+minute's catch-up run and uses it for new registrations. Other webhooks are left untouched.
+Retry backoff/timeout remain OpenWA server settings.
+
+Scheduled operations have one reserved worker whenever classification workers are enabled.
+Catch-up and device checks therefore run while AI workers are busy. The health endpoint's worker
+count includes this reserved worker; setting classification workers to zero pauses scheduled work.
+
+**Recover missed messages now** queues a manual pull even when automatic recovery is off.
+**Settings → Schedules → OpenWA message catch-up** shows counts, errors and execution history,
+and controls the schedule. Recovery reads OpenWA's persisted message history with inline media
+disabled; failed-delivery diagnostics alone do not contain the message body. Each phone scans
+up to three 100-row pages per run with a persistent keyset cursor and a two-minute overlap.
+Incomplete runs resume next time, and changing the lookback starts a fresh bounded scan.
+The retention window also caps recovery. Scope, paused phones, parent/sender roles, skipped chats,
+own-alert detection, existing human decisions and withheld content remain enforced by normal
+ingestion. Recovered messages enter IrisReview and the normal classification/alert pipeline.
+Upstream errors leave progress unchanged and appear in schedule results without message content.
+
+Recovery requires messages still retained in OpenWA and a key permitted to read session history.
+It cannot recreate purged messages, missing media bytes, or historical edit/revocation webhook
+events that the history API does not expose. It does not resend failed outgoing WhatsApp messages.
+
 
 ## License
 
@@ -654,3 +772,271 @@ MIT License. See [LICENSE](LICENSE).
 ## Optional local providers (beta)
 
 The [beta local deployment guide](docker-compose/local/README.md) describes opt-in Ollama moderation, a native Apple Silicon transcription companion, parent recipient management and QR pairing. Existing cloud defaults remain unchanged. Read the guide's validation limits before deploying this beta for monitoring.
+
+
+### User accounts, 2FA and public alert links
+
+Settings → Users manages admin and Watch-only accounts, email and personal WhatsApp numbers,
+account password changes, and 2FA. Settings → Notifications manages encrypted SMTP
+and GreenAPI credentials. Gmail SMTP supports STARTTLS 587 or TLS 465 with an app
+password. Either SMTP or GreenAPI must pass its test, and each user must approve at least one
+contact through a single-use confirmation link before enabling 2FA.
+WhatsApp 2FA uses GreenAPI only, sending a Copy code button to each user's personal
+number. Each Admin, Parent or Watch user needs an approved email or personal WhatsApp number;
+one working, approved channel is sufficient. Login codes expire after five minutes, are single-use,
+and have a limited attempt budget. Provider acceptance confirms sending. Confirmation links use Iris base URL and expire
+after 30 minutes; opening a link alone does not approve it. Click Approve contact.
+
+Settings → Alerts → Iris base URL sets the public domain used for new alert/media
+links (for example `https://iris.example.com`). The saved value overrides
+`IRIS_PUBLIC_BASE_URL` in `.env` / Docker Compose and takes effect without restarting.
+Configure the domain/reverse proxy first. Existing delivered messages retain their original links.
+
+Human Safe/Harmful reviews are stored separately from original model scores. Iris
+stores these labels for review and evaluation only. Reviewed text is never added to model
+instructions, and labels do not train the model or automatically alter thresholds.
+Labels never bypass moderation based on similarity. Deleting a phone retains messages by default. The optional message deletion
+removes messages exclusive to that phone and schedules their stored media for deletion;
+messages also received through another phone remain.
+
+
+OpenWA's webhook destination can be configured independently in Settings → Alerts →
+OpenWA webhook base URL (`IRIS_WEBHOOK_BASE_URL` in `.env` / Docker Compose).
+Use an address reachable and allowed by OpenWA, for example the private NAS URL;
+the public HTTPS Iris URL stays in parent alerts and browser links. Re-pairing
+reports WhatsApp connection success separately from webhook restoration failure,
+with a retry for monitoring setup. Existing matching webhooks are updated, not duplicated.
+
+
+### Approving 2FA contacts
+
+1. Set **Settings → Alerts → Iris base URL** to your reachable HTTPS domain. This
+   domain is used for email and WhatsApp approval links, as well as alert links.
+2. Save each user's email or personal WhatsApp number in **Settings → Users**.
+   Personal numbers use international format, such as `+972501234567`. Email addresses
+   and WhatsApp numbers cannot be shared by different users; email comparisons ignore case.
+   Admins can delete non-admin accounts after confirmation; admin accounts are protected.
+   Deleting an account revokes its access and approval links, retaining phones and messages.
+3. In **Settings → Notifications**, configure and test the intended channel:
+   SMTP for email, or GreenAPI API URL, instance ID and API token for WhatsApp.
+   WhatsApp 2FA uses GreenAPI only; OpenWA remains for monitoring and alerts.
+4. The admin test message includes an approval link. Open it and select
+   **Approve contact**. Use **Approve email** or **Approve WhatsApp** in the users
+   list to send approval links to other users or resend an expired link.
+5. Enable 2FA after every user has at least one approved contact with a tested
+   provider. An approved email with working SMTP is enough; an approved WhatsApp
+   number with working GreenAPI is also enough. You do not need both.
+
+Approval links expire after 30 minutes and work once. Loading a link does not
+approve it automatically. Changing a contact clears its approval and invalidates
+old links. Users without an approved working channel cannot sign in when 2FA is
+required. WhatsApp login messages include a **Copy code** button; test messages
+contain a demonstration code for checking the WhatsApp Copy code button. Email
+approval messages contain only the approval link; login emails contain the actual 2FA code.
+
+### Emergency Docker-only 2FA recovery
+
+Set `IRIS_TWO_FACTOR_RECOVERY_KEY` to a long random key (at least 32 characters)
+in `.env` and pass it through the Iris service's Docker Compose environment.
+Keep a copy offline. The local installation generates this key in the deployment
+`.env`; it is never shown in the UI or accepted by an HTTP login endpoint.
+
+Open an interactive shell on the Docker host or use the Iris container console:
+
+```sh
+docker exec -it iris /app/.venv/bin/python -m app.security.recover_2fa --username admin
+```
+
+Replace `admin` with your admin username. Enter the predefined key when prompted;
+do not pass it on the command line. The command disables 2FA globally for recovery,
+revokes all sessions, login challenges and pending approval links, and records an
+audit event. User accounts, passwords, messages and approved contacts are retained.
+If the admin's IP is locked out, the recovery command does not clear the running
+server's in-memory limiter. After recovery, run `docker restart iris` on the Docker
+host (or restart the container in Portainer). A restart clears the temporary login
+lockout; it does not reset the admin password. Use the HTTPS Iris address, since
+HTTP cannot establish a Secure session cookie. Sign in with the normal password,
+repair SMTP/GreenAPI delivery, then re-enable
+2FA before resuming normal access. There is no local-IP or recovery-key web bypass.
+
+### Monitoring roles and unresolved media
+
+Watch is read-only. Parent can resolve reviews, resend alerts, reprocess messages and delete
+saved media evidence; Admin additionally manages accounts, settings and phones. Parent can
+purge saved media from the Review page. Review decisions affect that message only.
+Video transcripts do not check video visuals: videos require parent review in local safety mode.
+The review page records why each item needs attention. Review notifications default to enabled;
+configure the alert recipient and sender under Alerts for WhatsApp delivery.
+Skipped and failed messages expire at the configured message retention age, while active jobs
+and unresolved reviews are preserved. Pairing cleanup logs failures and retries automatically.
+
+OpenWA deployments require a tested immutable `OPENWA_IMAGE` digest and disable Watchtower
+updates. Upgrade the gateway explicitly after testing pairing and signed webhooks.
+Database backups must be copied to a separate machine or backup destination and verified
+before pruning NAS copies. Keep a bounded set of recent local recovery snapshots; snapshots
+on the database disk alone do not protect against loss of that disk.
+
+For a complete recovery set, back up Iris's entire `/data` volume, the OpenWA `/app/data`
+volume, the deployed Compose configuration, `IRIS_SECRET_KEY`, and the Docker 2FA recovery
+key. Keep credentials and session files in an encrypted, access-controlled backup outside
+the application disk. An Iris SQLite snapshot alone does not include retained media or
+WhatsApp sessions. S3-backed evidence also needs the bucket's own backup/versioning policy.
+
+Rehearse recovery into **new directories**, never by overwriting the live volumes. Check
+SQLite `PRAGMA integrity_check` and verify that the saved encryption key decrypts a stored
+credential. Restore the same reviewed image versions and test Iris on a separate port with
+alert delivery disabled. Stop the original OpenWA before starting a restored WhatsApp
+session; running both copies can disrupt pairing. Verify user sign-in, retained media, and
+session readiness before moving traffic. Keep the original volumes until recovery is verified.
+
+This procedure requires a separately configured backup schedule; deployment snapshots do
+not provide continuous backups or prove a complete OpenWA/media restore.
+
+Skipped messages carry a specific processing reason. New messages preserve OpenWA's original
+type plus event name and content-presence flags, without storing a second raw payload. In
+safety mode, unknown messages with no analyzable content or unsupported attachments require
+manual review. Only allowlisted, content-free system events are skipped as system events.
+Legacy unknown skips with no recoverable original type are routed to review on startup.
+
+Review notification catch-up waits for the alert sender to reconnect. Failed review delivery
+gets one automatic recovery retry, with existing recipient tracking and cooldowns preserved;
+persistent failures stay visible for a Parent or Admin to correct and resend.
+
+Automatic alert delivery and review catch-up respect paused source phones, including queued
+alerts and follow-ups. A shared message may still alert through another active monitored
+phone. Parent sender connections can send alerts while their own monitoring is off.
+Review notices are identified as unconfirmed, and matching alert/message IDs are shown in
+Iris and new WhatsApp notifications. Cooldown-held and failed rows remain in Iris without
+being sent. Saving an unchanged user profile keeps pending login codes valid; actual account
+security changes invalidate them and the login page explains the reason.
+
+
+### Queue and notification reliability
+
+Retention preserves pending and processing messages, unresolved reviews, and messages with
+active classification jobs in every mode. Terminal failed/skipped messages still expire under
+the configured retention window. Classified harmful/review decisions keep durable alert-creation
+retry jobs if their notification hook fails; retrying these jobs does not rerun AI classification.
+Held harmful alerts resume when a source phone resumes monitoring and delivery is configured.
+Confirming a review retries an existing undelivered alert while preserving recipient checkpoints.
+Parent alert delivery remains opt-in and requires configured sender/recipients.
+
+`IRIS_JOB_TIMEOUT_SECONDS` bounds each handler attempt (default 900 seconds, maximum 3600),
+even while its lease heartbeat runs. Without heartbeats, attempts are capped at 570 seconds
+to end before the ten-minute stale lease can be claimed again. Classification and alert-creation timeouts retry with the
+queue's bounded backoff. Delivery timeouts remain visibly failed for manual inspection because
+a provider may have accepted a send before its response was lost.
+
+When 2FA is already enabled, new users require a contact backed by a tested provider; send its
+approval link from Settings → Users before their first login. An enrolled user's last approved
+working channel cannot be removed while 2FA is enabled.
+
+Webhook token rotation now rejects unsigned deliveries and shows that re-registration is
+required. Register the new webhook URL and signing secret before expecting delivery to resume.
+Pairing registers signed webhooks automatically. Manual installations can enforce signatures
+for every instance with `IRIS_REQUIRE_WEBHOOK_SIGNATURES=true`; configure matching signing
+secrets at the gateway before enabling that setting.
+
+
+New phone connections require HMAC-signed webhooks from creation, including manual additions.
+For manual connections, use **Register webhook** in Phones before expecting messages to arrive;
+Iris configures the URL and signing secret in OpenWA. Existing legacy connections retain their
+registration setting to avoid interrupting monitoring; re-register them to enable signing, or
+use the global strict-signature setting after configuring the gateway.
+
+Job acknowledgements and failures are tied to the claimed attempt. An old attempt cannot
+complete or fail its recovered replacement. Stale delivery/follow-up jobs are marked visibly
+failed with an uncertain-delivery warning rather than automatically sending again. Check
+whether the recipient received the message before explicitly retrying. Automatic review
+catch-up excludes these uncertain deliveries; confirmed recipient checkpoints remain preserved.
+
+
+In Review, parents and admins can choose **Ignore — missing data** when there is not enough
+information to decide. The item leaves the active queue and is available under **Ignored:
+missing data**. Iris preserves its evidence and diagnostic reason and records the data-quality
+report separately from safety judgements for later design review. Ignoring does not label it
+safe or harmful, train Ollama, change thresholds, or automatically approve similar messages.
+Parents can make a safety decision later from the ignored view.
+
+Async requests show an indeterminate progress bar while Iris is working. Ordinary API
+requests time out after 30 seconds and release controls for retry; provider tests and
+classification checks allow two minutes, and database copying allows five minutes. A
+browser timeout does not cancel work already accepted by the server: check its result
+before repeating a change. Login can retry session loading without resubmitting an
+accepted verification code.
+
+WhatsApp alert delivery uses persistent sending budgets shared by all chats, parents,
+follow-ups and manual resends. Settings → Alerts controls the default 30-second spacing,
+60 sends per hour and 250 sends per 24-hour window per sender. Each recipient also has
+60-second spacing, 20 sends/hour and 100/day. Every provider call reserves capacity;
+failed or uncertain calls also count. Jobs exceeding a budget remain queued with the next
+attempt time, retain recipient checkpoints and do not consume failure retries. Delivery
+still obeys the per-chat cooldown; suppressed alerts are counted in later alert summaries.
+These are Iris traffic controls, **not WhatsApp-approved safe sending limits**. Account
+restrictions remain possible with unofficial automation; use an eligible official WhatsApp
+Business Platform integration or a different notification channel for supported automation.
+Provider throttling pauses the sender for five minutes; authorization rejection pauses it
+for 24 hours and requires checking the connection. Test messages use the same budgets.
+
+GreenAPI verification and approval messages use a separate persistent budget: five seconds
+between sends per instance, 60/hour and 250/day; per contact, one minute between requests,
+five/hour and 20/day. Excess requests return a retry delay instead of queueing an expiring
+code behind alerts. Use email when WhatsApp code delivery is unavailable. Iris does not
+change provider-side queue settings or send anything merely by upgrading.
+
+For a multi-parent alert test, Iris may send the first test immediately and queue the
+remaining tests behind the same sender budget. Successful recipients are not repeated;
+Settings reports that the rest are queued, and Jobs shows completion or failure. A repeated
+single-recipient test during its limit returns a retry delay instead of sending again.
+
+
+### Phone alert review (beta.10)
+
+Notifications includes a private-summary/message-preview design and an opt-in review button setting.
+GreenAPI and Telegram personal alert recipients can choose SAFE, Harmful or Ignore. The first
+accepted parent response is final; subsequent choices become notes in Review → Parent responses &
+notes and the alert detail. Buttons are bound to their recipient, provider and alert, expire after
+four days, and revalidate current recipient eligibility and child assignment before accepting.
+GreenAPI buttons are a beta provider feature. Use dedicated notification connections without a
+webhook or another polling consumer, and enable incoming messages for GreenAPI. Iris consumes that
+instance's notification queue. Telegram polls callback updates. The Parent alert responses schedule
+checks every 30 seconds by default; it supports run-now, bounded history and dashboard failures.
+Decisions and notes are committed before provider acknowledgement; replayed responses are ignored.
+Private summaries continue to omit message content. All notices include the configured Iris server
+address. WhatsApp and Telegram control their native fonts; Iris and HTML email use lighter type.
+
+
+GreenAPI recipient phones do not need individual approval. A successfully verified GreenAPI
+connection and a valid selected recipient number are sufficient. Missing optional phone numbers,
+watch users, deleted accounts and empty child assignments remain ineligible. The same policy is
+used for channel selection, delivery, review-button responses and dashboard readiness.
+
+
+## Chats filters
+
+Chats supports the same time, phone, message type, verdict, sender, and message/transcript search filters as Messages, including Hebrew. A conversation matches only when a single message satisfies all selected filters. Opening a chat carries those filters into Messages. Chat message and alert counts continue to show the full conversation totals.
+
+
+## Home resource metrics
+
+System resources appears last on Home. Activity, alerts per group/contact, recent alerts and system resources each have an accessible collapse control and start expanded. Collapsing preserves filters and loaded content. Disk measures the filesystem hosting Iris, including other files on that volume. CPU samples the Iris container over 250 ms and respects its CPU quota; RAM measures its cgroup memory use (including cache) against its configured limit. The cards refresh each minute, support Hebrew RTL and reduced motion, and show unavailable when counters cannot be read. Disk uses a liquid glass, CPU a pulse, and RAM illuminated segments.
+
+
+### Reading alerts on page entry
+
+Entering Alerts marks the displayed batch read for the signed-in user and refreshes Home/sidebar unread counts. The rows stay visible during that visit so they can be read; returning to Unseen excludes them. Next unread alerts loads the first remaining batch, avoiding pagination skips as the unread list shrinks. Background data requests remain read-only, other accounts are unaffected, and read errors offer a retry.
+
+
+### Missing saved media
+
+Home's missing-media warning links to `/alerts?view=all&media=missing`, so its affected list includes read alerts. Alerts offers a No saved media copy filter. The warning and list share the same predicate: retained non-withheld image/audio/voice/video/sticker/document alerts with no non-purged saved media row. This differs from Human review, which lists messages awaiting a human decision.
+
+
+### WhatsApp message types
+
+Polls are recognized separately and their available text can be searched and checked. Empty deleted-message markers and unsupported gateway messages have explanatory labels instead of `[other]`. Deleted content and unsupported fields cannot be reconstructed when OpenWA provides neither a body nor media. Catch-up can repair older missing type metadata on duplicate messages without restoring content or changing existing verdicts. Empty confirmed deletion markers bypass AI; genuinely unsupported messages stay subject to review.
+
+
+The installed OpenWA poll mapper also preserves question, option names and multiple-answer mode in webhooks and stored-message metadata. Iris converts these fields into searchable/classifiable text; incomplete polls stay reviewable. Poll secrets and voter identities are not included. Older gateway rows may contain only the question; changing a type label cannot reconstruct missing options or votes.
+
+Home shows unfinished or skipped setup steps to admins. OpenWA, a tested notifier, an approved parent recipient and a connected child remain visible until ready. The defaults-review reminder is dismissible per admin; dismissal does not complete setup. The setup checklist remains available from Home and Settings.

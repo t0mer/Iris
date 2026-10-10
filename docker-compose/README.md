@@ -30,8 +30,9 @@ Compose refuses to start and says which value is missing if a required one is em
 | `IRIS_ADMIN_USERNAME`, `IRIS_ADMIN_PASSWORD` | Iris | First-run admin account (the password is ignored afterwards). |
 | `IRIS_PUBLIC_BASE_URL` | Iris | The address OpenWA reaches Iris on. It builds the webhook URLs and alert links. |
 | `IRIS_METRICS_TOKEN` | Iris | Makes `/metrics` require `Authorization: Bearer <token>`. Set it if the Iris port is reachable from outside. |
-| `IRIS_PORT`, `IRIS_IMAGE` | Iris | Published port (default 8080) and image (default `techblog/iris:latest`). |
+| `IRIS_PORT`, `IRIS_IMAGE` | Iris | Published port (default 8080) and required reviewed image tag or digest. |
 | `DB_PASSWORD` | MySQL, PostgreSQL | The database password. Use letters and digits only: it goes into a connection URL as is. |
+| `OPENWA_IMAGE` | OpenWA | Required tested immutable image digest. Automatic Watchtower updates are disabled. |
 | `OPENWA_PORT`, `TZ` | OpenWA | Port on localhost (default 2785) and time zone for its logs. |
 
 ## Which database?
@@ -56,6 +57,6 @@ Compose refuses to start and says which value is missing if a required one is em
 - The MySQL root password is random and unused; Iris has its own limited user.
 - `openwa.yml` publishes OpenWA on `127.0.0.1` only and runs it read-only with all capabilities dropped except those its entrypoint needs. Put a TLS reverse proxy in front to reach it from other machines, and remove `CSP_UPGRADE_INSECURE_REQUESTS` once you do (it is there so the dashboard works over plain HTTP).
 - OpenWA's `openwa-data` volume holds your WhatsApp logins. Back it up like a secret.
-- Pin versions for repeatable installs: set `IRIS_IMAGE=techblog/iris:<version>` and replace `latest` in `openwa.yml`.
+- Pin versions for repeatable installs: set `IRIS_IMAGE=techblog/iris:<version>` or an immutable digest, and set the required `OPENWA_IMAGE` to your tested gateway digest.
 - Update with `docker compose -f <file> pull && docker compose -f <file> up -d`. Data lives in named volumes and survives.
 - Stop everything and **keep** the data: `docker compose -f <file> down`. Add `-v` only if you want the data deleted.

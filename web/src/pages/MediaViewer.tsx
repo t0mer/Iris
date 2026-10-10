@@ -71,9 +71,13 @@ export function MediaViewer() {
                 </Link>
               </Button>
             )}
-            <Button asChild variant="ghost">
-              <Link to={`/messages/${m.message_id}`}>
-                <MessagesSquare /> See the conversation
+            <Button asChild variant="ghost" size="sm">
+              <Link
+                to={`/messages/${m.message_id}`}
+                aria-label="See the conversation"
+                title="Open the full conversation"
+              >
+                <MessagesSquare /> Chat
               </Link>
             </Button>
           </div>

@@ -8,5 +8,10 @@ export default defineConfig({
   // Fonts must be real files: the Content-Security-Policy blocks data: fonts.
   build: { outDir: '../app/static', emptyOutDir: true, assetsInlineLimit: 0 },
   server: { proxy: { '/api': 'http://localhost:8080' } },
-  test: { environment: 'jsdom', setupFiles: ['./src/test-setup.ts'], globals: true },
+  test: {
+    include: ['tests/**/*.test.{ts,tsx}'],
+    environment: 'jsdom',
+    setupFiles: ['./tests/test-setup.ts'],
+    globals: true,
+  },
 })

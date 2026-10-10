@@ -7,7 +7,9 @@ export function useMe() {
     queryKey: ['me'],
     queryFn: async () => {
       try {
-        return await api<{ username: string }>('/api/auth/me')
+        return await api<{ username: string; role: 'admin' | 'parent' | 'watch'; id: number }>(
+          '/api/auth/me',
+        )
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) return null
         throw e

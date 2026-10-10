@@ -66,7 +66,17 @@ async def test_register_webhook_success_and_private_address_hint(app_client) -> 
         return_value=httpx.Response(400, json={"message": "Destination address is not allowed"})
     )
     r = await app_client.post(f"/api/instances/{out['id']}/register-webhook")
-    assert r.status_code == 502 and "public hostname" in r.json()["detail"]
+    assert r.status_code == 502 and "OpenWA webhook base URL" in r.json()["detail"]
+    persisted = (await app_client.get(f"/api/instances/{out['id']}")).json()
+    assert persisted["monitoring_status"] == "failed"
+    assert "Destination address is not allowed" in persisted["monitoring_error"]
+    route.mock(return_value=httpx.Response(201, json={"id": "wh-1"}))
+    assert (
+        await app_client.post(f"/api/instances/{out['id']}/register-webhook")
+    ).status_code == 200
+    persisted = (await app_client.get(f"/api/instances/{out['id']}")).json()
+    assert persisted["monitoring_status"] == "registered"
+    assert persisted["monitoring_error"] is None
 
 
 @respx.mock

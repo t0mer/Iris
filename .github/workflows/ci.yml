@@ -9,6 +9,13 @@ permissions:
   contents: read
 
 jobs:
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate deployment examples without starting containers
+        run: python scripts/validate_compose.py
+
   python:
     runs-on: ubuntu-latest
     steps:
@@ -20,14 +27,25 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy
-      - run: uv run pytest -q
+      - name: Backend regression tests
+        timeout-minutes: 20
+        run: uv run pytest -v -o faulthandler_timeout=90 --junitxml=.local/test-results/backend.xml
+      - name: Save backend test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-${{ github.job }}
+          path: .local/test-results/*.xml
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
 
   postgres:
     # The whole suite against PostgreSQL, then a copy from SQLite into a second PostgreSQL database.
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: mirror.gcr.io/library/postgres:16
         env:
           POSTGRES_PASSWORD: pw
           POSTGRES_DB: iris
@@ -43,21 +61,32 @@ jobs:
       - name: Install ffmpeg (media tests)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: uv sync --frozen
-      - run: uv run pytest -q
+      - name: Backend regression tests
+        timeout-minutes: 20
+        run: uv run pytest -v -o faulthandler_timeout=90 --junitxml=.local/test-results/backend.xml
       - name: Copy from SQLite into PostgreSQL
         env:
           IRIS_DATABASE_URL: ""
           IRIS_TEST_PG_URL: postgresql://postgres:pw@127.0.0.1:5432/iris_copy
         run: |
           PGPASSWORD=pw psql -h 127.0.0.1 -U postgres -c 'CREATE DATABASE iris_copy'
-          uv run pytest -m integration tests/test_db_copy_real.py -q
+          uv run pytest -m integration tests/test_db_copy_real.py -q --junitxml=.local/test-results/database-copy.xml
+      - name: Save backend test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-${{ github.job }}
+          path: .local/test-results/*.xml
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
 
   mysql:
     # The whole suite against MySQL, then a copy from SQLite into a second MySQL database.
     runs-on: ubuntu-latest
     services:
       mysql:
-        image: mysql:8
+        image: mirror.gcr.io/library/mysql:8
         env:
           MYSQL_ROOT_PASSWORD: pw
           MYSQL_DATABASE: iris
@@ -73,14 +102,25 @@ jobs:
       - name: Install ffmpeg (media tests)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: uv sync --frozen
-      - run: uv run pytest -q
+      - name: Backend regression tests
+        timeout-minutes: 20
+        run: uv run pytest -v -o faulthandler_timeout=90 --junitxml=.local/test-results/backend.xml
       - name: Copy from SQLite into MySQL
         env:
           IRIS_DATABASE_URL: ""
           IRIS_TEST_MYSQL_URL: mysql://root:pw@127.0.0.1:3306/iris_copy
         run: |
           mysql -h 127.0.0.1 -uroot -ppw -e 'CREATE DATABASE iris_copy CHARACTER SET utf8mb4'
-          uv run pytest -m integration tests/test_db_copy_real.py -q
+          uv run pytest -m integration tests/test_db_copy_real.py -q --junitxml=.local/test-results/database-copy.xml
+      - name: Save backend test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-${{ github.job }}
+          path: .local/test-results/*.xml
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
 
   web:
     runs-on: ubuntu-latest
@@ -97,7 +137,16 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run format:check
-      - run: npm test
+      - run: npm run test:ci
+      - name: Save frontend test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend
+          path: web/.local/test-results/*.xml
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
       - run: npm run build
 
   security:

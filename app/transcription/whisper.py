@@ -44,6 +44,8 @@ class WhisperTranscriber:
                 )
         except httpx.HTTPError as exc:
             raise TransientError("Local transcription unreachable") from exc
+        if response.status_code == 422:
+            raise TransientError("whisper.cpp HTTP 422; transcription will be retried")
         raise_for_status("whisper.cpp", response)
         try:
             text = response.json()["text"]

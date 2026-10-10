@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { SkipGroup } from '../components/SkipGroup'
 import { Search, SearchX } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -23,7 +24,7 @@ import { dateTime } from '../lib/format'
 import { useUrlState } from '../lib/urlState'
 import type { Instance, MessagePage } from '../lib/types'
 
-const TYPES = ['text', 'image', 'audio', 'voice', 'video', 'sticker', 'document', 'other']
+const TYPES = ['text', 'image', 'audio', 'voice', 'video', 'sticker', 'document', 'poll', 'other']
 const VERDICTS = [
   { value: 'harmful', label: 'Harmful' },
   { value: 'review', label: 'Needs review' },
@@ -84,10 +85,10 @@ export function Messages() {
   if (from) params.set('from', from)
 
   const { data: instances } = useQuery({
-    queryKey: ['instances'],
-    queryFn: () => api<Instance[]>('/api/instances'),
+    queryKey: ['auth-phones'],
+    queryFn: () => api<Instance[]>('/api/auth/phones'),
   })
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['messages', params.toString()],
     queryFn: () => api<MessagePage>(`/api/messages?${params}`),
   })
@@ -180,7 +181,10 @@ export function Messages() {
           ))}
         {isError && (
           <li role="alert" className="p-4 text-sm text-danger">
-            Could not load messages. Reload the page; if it keeps failing, check the Jobs page.
+            Could not load messages.{' '}
+            <button className="underline" onClick={() => void refetch()}>
+              Retry
+            </button>
           </li>
         )}
         {data?.items.map((m) => (
@@ -219,6 +223,9 @@ export function Messages() {
               </span>
               <Failure m={m} />
             </Link>
+            <div className="px-4 pb-3">
+              <SkipGroup messageId={m.id} isGroup={m.is_group} />
+            </div>
           </li>
         ))}
         {data && data.items.length === 0 && (

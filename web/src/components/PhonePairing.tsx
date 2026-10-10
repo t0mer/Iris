@@ -169,14 +169,7 @@ export function PhonePairing({
     setBusy(true)
     update(current.current ? { ...current.current, qr: null, status: 'canceling' } : null)
     try {
-      const response = await fetch(`/api/pairing/${token.current}`, {
-        method: 'DELETE',
-        credentials: 'same-origin',
-      })
-      if (!response.ok)
-        throw new Error(
-          'Cleanup is waiting for OpenWA. It will retry automatically; you can retry here too.',
-        )
+      await api(`/api/pairing/${token.current}`, { method: 'DELETE' })
       token.current = null
       update(null)
       setError('')
