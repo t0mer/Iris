@@ -79,7 +79,8 @@ async def test_context_refines_unclear_and_is_sent_oldest_first(app_client: Any)
     assert [s["stage"] for s in j["stages"]] == ["moderation", "context"]
     assert j["verdict"] == "harmful"
     sent = json.loads(route.calls[1].request.content)["input"]
-    assert sent.index("first") < sent.index("second") < sent.index(">>> Chat: final")
+    assert sent.index("first") < sent.index("second") < sent.index(">>> ")
+    assert json.loads(sent.split(">>> ", 1)[1]) == {"sender": "Chat", "content": "final"}
 
 
 async def test_unclear_without_conclusive_context_is_review(app_client: Any) -> None:

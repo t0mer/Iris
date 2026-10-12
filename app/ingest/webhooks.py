@@ -18,9 +18,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts.format import is_own_alert
-from app.api.instances import webhook_secret
+from app.api.instances import save_webhook_status, webhook_secret
 from app.config import Settings, get_settings
-from app.db.models import Chat, ChatInstance, Instance, Job, Message, MessageReceipt
+from app.db.models import Chat, ChatInstance, Instance, Job, Message, MessageReceipt, SkippedGroup
 from app.deps import get_db
 from app.ingest.changes import apply_change
 from app.metrics import WEBHOOKS
@@ -89,7 +89,7 @@ def _media_ref(inst_id: int, msg: IncomingMessage) -> dict[str, Any]:
 
 def _remember_media_ref(message: Message, inst_id: int, msg: IncomingMessage) -> None:
     """Keep the other session's way to fetch the media: it may be the only one OpenWA can serve."""
-    if not msg.media:
+    if not msg.media or message.redacted or message.revoked_at is not None:
         return
     ref = _media_ref(inst_id, msg)
     current = message.media
@@ -102,7 +102,35 @@ def _remember_media_ref(message: Message, inst_id: int, msg: IncomingMessage) ->
     message.media = {**current, "alternates": [*current.get("alternates", []), ref]}
 
 
+def remember_message_type(existing: Message, incoming: IncomingMessage) -> bool:
+    """Repair only type metadata on a duplicate; never restore withheld/deleted content."""
+    if existing.type != "other":
+        return False
+    changed = False
+    if (
+        incoming.raw_type
+        and existing.raw_type in (None, "unknown")
+        and existing.raw_type != incoming.raw_type
+    ):
+        existing.raw_type = incoming.raw_type
+        changed = True
+    if incoming.type == "poll" and incoming.raw_type in {"poll", "poll_creation"}:
+        existing.type = "poll"
+        changed = True
+    return changed
+
+
 async def _store_once(db: AsyncSession, inst_id: int, kid_name: str, msg: IncomingMessage) -> str:
+    if (
+        await db.scalar(
+            select(SkippedGroup.chat_id)
+            .join(Chat)
+            .where(Chat.wa_chat_id == msg.wa_chat_id, SkippedGroup.instance_id == inst_id)
+        )
+        is not None
+    ):
+        await db.commit()
+        return "skipped"
     # The message hash is identical for everyone who sees the message, but in a DIRECT chat each
     # monitored session sees the other party under its own chat id. So dedupe on the hash alone:
     # a message between two monitored kids is one message with two receipts, not two copies.
@@ -110,6 +138,10 @@ async def _store_once(db: AsyncSession, inst_id: int, kid_name: str, msg: Incomi
         await db.execute(select(Message).where(Message.wa_message_id == msg.wa_message_id).limit(1))
     ).scalar_one_or_none()
     if existing is not None:
+        remember_message_type(existing, msg)
+        chat = await db.get(Chat, existing.chat_id)
+        if chat is not None and not chat.name and not msg.is_group and not msg.from_me:
+            chat.name = kid_name if existing.from_me else msg.sender_name
         if await db.get(ChatInstance, (existing.chat_id, inst_id)) is None:
             db.add(ChatInstance(chat_id=existing.chat_id, instance_id=inst_id))
         if await db.get(MessageReceipt, (existing.id, inst_id)) is None:
@@ -141,6 +173,8 @@ async def _store_once(db: AsyncSession, inst_id: int, kid_name: str, msg: Incomi
         sender_name=kid_name if msg.from_me else msg.sender_name,
         from_me=msg.from_me,
         type=msg.type,
+        raw_type=msg.raw_type,
+        diagnostics=msg.diagnostics,
         text=msg.text,
         quoted_wa_message_id=msg.quoted_wa_message_id,
         sent_at=msg.sent_at,
@@ -202,6 +236,7 @@ async def receive(
 
     sig = request.headers.get("x-openwa-signature")
     if sig is None and (inst.signature_required or settings.require_webhook_signatures):
+        await save_webhook_status(db, inst.id, "failed", "Webhook signature is missing")
         WEBHOOKS.labels(str(inst_id), "rejected").inc()
         raise HTTPException(status_code=401, detail="signature required")
     if sig is not None:
@@ -210,6 +245,9 @@ async def receive(
             + hmac.new(webhook_secret(settings, token).encode(), raw, hashlib.sha256).hexdigest()
         )
         if not hmac.compare_digest(sig, expected):
+            await save_webhook_status(
+                db, inst.id, "failed", "Webhook signature verification failed"
+            )
             WEBHOOKS.labels(str(inst_id), "rejected").inc()
             raise HTTPException(status_code=401, detail="bad signature")
 
@@ -226,8 +264,23 @@ async def receive(
         return {"result": "rejected"}
 
     inst.last_webhook_at = datetime.now(UTC)
+    if sig is not None:
+        await save_webhook_status(db, inst.id, "registered", None)
     if change is not None:
         async with _STORE_LOCK:
+            if (
+                await db.scalar(
+                    select(SkippedGroup.chat_id)
+                    .join(Message, Message.chat_id == SkippedGroup.chat_id)
+                    .where(
+                        Message.wa_message_id == change.wa_message_id,
+                        SkippedGroup.instance_id == inst_id,
+                    )
+                )
+                is not None
+            ):
+                await db.commit()
+                return {"result": "skipped"}
             result = await apply_change(db, change)
             await db.commit()  # keeps last_webhook_at even when the change was a no-op
         WEBHOOKS.labels(str(inst_id), result).inc()  # edited | revoked | duplicate | ignored

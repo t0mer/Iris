@@ -1,4 +1,5 @@
 import json
+import os
 import stat
 from pathlib import Path
 
@@ -93,7 +94,8 @@ def test_env_wins_over_the_file_and_the_file_over_the_default(
 def test_the_file_is_private_and_holds_no_plain_password() -> None:
     dburl.save_file(PG)
     path = dburl.config_path()
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
     text = path.read_text()
     assert "p@ss" not in text and json.loads(text)["password_enc"]
     assert not path.with_suffix(".tmp").exists()

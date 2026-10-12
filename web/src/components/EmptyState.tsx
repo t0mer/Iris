@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { Children, type ReactNode } from 'react'
+import { t } from '../lib/i18n'
 
 /** An empty list is an invitation: say what belongs here and what to do next. */
 export function EmptyState({
@@ -18,8 +19,12 @@ export function EmptyState({
       <span className="grid size-12 place-items-center rounded-full bg-primary-soft text-primary">
         <Icon className="size-6" />
       </span>
-      <p className="font-medium">{title}</p>
-      {children && <p className="max-w-sm text-sm text-muted-foreground">{children}</p>}
+      <p className="font-medium">{t(title)}</p>
+      {children && (
+        <p className="max-w-sm text-sm text-muted-foreground">
+          {Children.map(children, (child) => (typeof child === 'string' ? t(child) : child))}
+        </p>
+      )}
       {action}
     </div>
   )

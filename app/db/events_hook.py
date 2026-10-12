@@ -15,13 +15,34 @@ TOPICS: dict[str, tuple[str, ...]] = {
     "MessageRevision": ("messages",),
     "StoredMedia": ("alerts", "messages"),
     "Alert": ("alerts", "stats"),
-    "Job": ("jobs", "stats"),
+    "AlertView": ("alerts", "stats"),
+    "Job": ("jobs", "stats", "review"),
     "Instance": ("instances", "stats"),
     "Chat": ("chats",),
     "ChatInstance": ("chats",),
+    "Setting": ("stats",),
+    "User": ("stats",),
+    "ReviewResponse": ("review", "alerts", "stats"),
+    "ReviewFeedback": ("review", "alerts", "stats"),
+    "ScheduleRun": ("stats",),
 }
 _KEY = "iris_live"
 _installed = False
+
+
+def _clear_withheld_feedback(session: Session, _ctx: Any, _instances: Any) -> None:
+    from app.db.models import Message, ReviewFeedback
+
+    for message in list(session.dirty):
+        if isinstance(message, Message) and (message.redacted or message.revoked_at):
+            feedback = session.get(ReviewFeedback, message.id)
+            if feedback:
+                feedback.explanation = None
+                feedback.categories = None
+            for pending in list(session.new):
+                if isinstance(pending, ReviewFeedback) and pending.message_id == message.id:
+                    pending.explanation = None
+                    pending.categories = None
 
 
 def _state(session: Session) -> dict[str, Any]:
@@ -65,6 +86,7 @@ def install() -> None:
     if _installed:
         return
     event.listen(Session, "do_orm_execute", _on_execute)
+    event.listen(Session, "before_flush", _clear_withheld_feedback)
     event.listen(Session, "after_flush", _after_flush)
     event.listen(Session, "after_commit", _after_commit)
     event.listen(Session, "after_rollback", _after_rollback)

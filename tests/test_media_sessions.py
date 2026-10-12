@@ -100,6 +100,10 @@ async def test_media_is_fetched_from_the_session_that_has_it(app_client: Any) ->
 @respx.mock
 async def test_it_fails_only_when_no_session_has_the_media(app_client: Any) -> None:
     deps, ta, tb = await two_sessions(app_client)
+    await app_client.put("/api/settings", json={"settings": {"media.recovery_wait_seconds": 0}})
+    respx.get(url__regex=r"https://wa\.x/api/sessions/.*/messages/.*/history").mock(
+        return_value=httpx.Response(404)
+    )
     for sid in ("a", "b"):
         respx.get(url__regex=session_url(sid)).mock(return_value=httpx.Response(404))
     respx.post(MOD_URL).mock(return_value=mod_response())
@@ -111,15 +115,37 @@ async def test_it_fails_only_when_no_session_has_the_media(app_client: Any) -> N
 
 
 @respx.mock
-async def test_a_server_error_is_retried_not_passed_to_the_next_session(app_client: Any) -> None:
+async def test_a_server_error_does_not_hide_the_next_sessions_saved_media(app_client: Any) -> None:
     deps, ta, tb = await two_sessions(app_client)
     first = respx.get(url__regex=session_url("a")).mock(return_value=httpx.Response(503))
-    second = respx.get(url__regex=session_url("b")).mock(return_value=httpx.Response(200))
+    second = respx.get(url__regex=session_url("b")).mock(
+        return_value=httpx.Response(
+            200, content=(MEDIA / "image.png").read_bytes(), headers={"content-type": "image/png"}
+        )
+    )
     respx.post(MOD_URL).mock(return_value=mod_response())
     await post(app_client, ta, fx("image_nocaption_received"))
     await post(app_client, tb, received_view("image_nocaption_received"))
-    assert await run_all(deps) == ["queued"]  # transient: tried again later
-    assert first.called and not second.called
+    assert await run_all(deps) == ["done"]
+    assert first.called and second.called
+    msg = await the_message(app_client)
+    assert msg.status == "done" and msg.verdict == "safe"
+
+
+@respx.mock
+@pytest.mark.parametrize("alternate_status", [503, 200])
+async def test_unavailable_or_empty_alternate_preserves_transient_retry(
+    app_client: Any, alternate_status: int
+) -> None:
+    deps, ta, tb = await two_sessions(app_client)
+    first = respx.get(url__regex=session_url("a")).mock(return_value=httpx.Response(503))
+    second = respx.get(url__regex=session_url("b")).mock(
+        return_value=httpx.Response(alternate_status)
+    )
+    await post(app_client, ta, fx("image_nocaption_received"))
+    await post(app_client, tb, received_view("image_nocaption_received"))
+    assert await run_all(deps) == ["queued"]
+    assert first.called and second.called
 
 
 @pytest.mark.parametrize("legacy", [{"instance_id": 1, "chat_id": "c", "message_ref": "true_c_h"}])

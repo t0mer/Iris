@@ -50,6 +50,37 @@ async def test_corrupt_media_raises_permanent(tmp_path: Path) -> None:
         await ffmpeg.image_to_jpeg(bad, tmp_path / "x.jpg")
 
 
+async def test_animated_webp_is_unwrapped_for_first_frame_conversion(tmp_path: Path) -> None:
+    static = (FIX / "sticker.webp").read_bytes()
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return tag + len(data).to_bytes(4, "little") + data + b"\x00" * (len(data) % 2)
+
+    vp8x = bytes([2, 0, 0, 0]) + (63).to_bytes(3, "little") * 2
+    frame = (
+        b"\x00" * 6
+        + (63).to_bytes(3, "little") * 2
+        + (100).to_bytes(3, "little")
+        + b"\x00"
+        + static[12:]
+    )
+    payload = (
+        b"WEBP" + chunk(b"VP8X", vp8x) + chunk(b"ANIM", b"\x00" * 6) + chunk(b"ANMF", frame) * 2
+    )
+    src, dst = tmp_path / "anim.webp", tmp_path / "result.jpg"
+    src.write_bytes(b"RIFF" + len(payload).to_bytes(4, "little") + payload)
+    await ffmpeg.image_to_jpeg(src, dst)
+    assert dst.read_bytes().startswith(b"\xff\xd8\xff")
+    assert not dst.with_suffix(".first-frame.webp").exists()
+
+
+def test_incomplete_animated_webp_is_not_passed_to_decoder(tmp_path: Path) -> None:
+    src = tmp_path / "broken.webp"
+    src.write_bytes(b"RIFF" + (1000).to_bytes(4, "little") + b"WEBP")
+    with pytest.raises(PermanentError, match="incomplete"):
+        ffmpeg._animated_webp_first_frame(src, tmp_path / "frame.webp")
+
+
 async def test_tmpdir_removed_on_success_and_on_exception(tmp_path: Path) -> None:
     async with job_tmpdir(tmp_path, 5) as d:
         (d / "f").write_bytes(b"x")
@@ -111,6 +142,21 @@ def test_fixtures_are_small() -> None:
     assert sum(f.stat().st_size for f in FIX.iterdir()) < 100_000 and os.listdir(FIX)
 
 
+@respx.mock
+async def test_empty_success_response_is_retryable_and_leaves_no_file(tmp_path: Path) -> None:
+    respx.get(url__regex=MEDIA_URL).mock(
+        return_value=httpx.Response(200, headers={"content-type": "image/png"})
+    )
+    dest = tmp_path / "empty"
+    client = _client()
+    try:
+        with pytest.raises(TransientError, match="empty media"):
+            await download(client, "s1", "chat@lid", "true_chat@lid_ABC", dest)
+    finally:
+        await client.aclose()
+    assert not dest.exists()
+
+
 @pytest.mark.parametrize(
     "content",
     [
@@ -139,6 +185,7 @@ def _running(pattern: str) -> bool:
     return bool(out.strip())
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX sleep/pgrep process verification")
 async def test_timeout_kills_the_process(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ffmpeg, "_TIMEOUT", 1.0)
     with pytest.raises(PermanentError, match="timed out"):
@@ -146,6 +193,7 @@ async def test_timeout_kills_the_process(monkeypatch: pytest.MonkeyPatch) -> Non
     assert not _running("sleep 37")
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX sleep/pgrep process verification")
 async def test_cancellation_kills_the_process() -> None:
     import asyncio
 

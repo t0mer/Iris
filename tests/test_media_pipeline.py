@@ -205,6 +205,7 @@ async def test_oversized_media_is_skipped_but_its_caption_is_still_moderated(
 @respx.mock
 async def test_harmful_caption_alerts_even_when_media_is_unavailable(app_client: Any) -> None:
     deps, token = await setup(app_client)
+    await app_client.put("/api/settings", json={"settings": {"media.recovery_attempts": 0}})
     seen: list[int] = []
 
     async def hook(_db: Any, message: Message, _outcome: Any) -> None:
@@ -222,6 +223,7 @@ async def test_harmful_caption_alerts_even_when_media_is_unavailable(app_client:
 @respx.mock
 async def test_safe_caption_with_unavailable_media_is_not_called_safe(app_client: Any) -> None:
     deps, token = await setup(app_client)
+    await app_client.put("/api/settings", json={"settings": {"media.recovery_attempts": 0}})
     respx.get(url__regex=MEDIA_URL).mock(return_value=httpx.Response(404))
     respx.post(MOD_URL).mock(return_value=mod_response())
     await post(app_client, token, fx("image_caption_sent"))
@@ -268,6 +270,7 @@ async def test_worker_start_sweeps_orphaned_temp_dirs(app_client: Any) -> None:
 @respx.mock
 async def test_media_gone_from_openwa_fails_permanently_and_cleans_up(app_client: Any) -> None:
     deps, token = await setup(app_client)
+    await app_client.put("/api/settings", json={"settings": {"media.recovery_attempts": 0}})
     respx.get(url__regex=MEDIA_URL).mock(return_value=httpx.Response(404))
     await post(app_client, token, fx("image_caption_sent"))
     assert await run_all(deps) == ["failed"]
@@ -328,7 +331,9 @@ async def test_document_only_caption_is_moderated(app_client: Any) -> None:
     deps, token = await setup(app_client)
     respx.post(MOD_URL).mock(return_value=mod_response())
     await post(app_client, token, fx("document_sent"))  # caption "doc"
-    assert await run_all(deps) == ["done"]
+    assert await run_all(deps) == ["failed"]
+    message, _ = await the_message(app_client)
+    assert message.verdict is None and message.status == "failed"
     assert mod_inputs() == ["doc"]
     assert not any(
         c.request.method == "GET" for c in respx.calls
