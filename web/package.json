@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/third-party-notices.mjs && tsc -b && vite build",
+    "build": "node scripts/check-translations.cjs && node scripts/pdfjs-assets.mjs && node scripts/third-party-notices.mjs && tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",
-    "format": "prettier --write src",
-    "format:check": "prettier --check src"
+    "format": "prettier --write src tests",
+    "format:check": "prettier --check src tests",
+    "test:ci": "vitest run --reporter=default --reporter=junit --outputFile=.local/test-results/frontend.xml",
+    "i18n:check": "node scripts/check-translations.cjs"
   },
   "dependencies": {
     "@fontsource-variable/rubik": "^5.3.0",
@@ -24,6 +26,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.52.0",
+    "pdfjs-dist": "^6.4.299",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.4",

@@ -13,7 +13,17 @@ from tests.test_webhooks import fx, make_instance, post
 
 
 @pytest.fixture(autouse=True)
-def _fresh_bus() -> None:
+def _fresh_bus(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api import pairing
+
+    async def idle_cleanup(_: Any) -> None:
+        # These tests measure stream transactions, not the scheduler's own writes
+        # and checked-out connections. Lifespan still starts and cancels this task.
+        await asyncio.Future()
+
+    monkeypatch.setattr(pairing, "cleanup_loop", idle_cleanup)
+    if bus._timer is not None:
+        bus._timer.cancel()
     bus._subs.clear()
     bus._topics.clear()
     bus._alert_ids.clear()

@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { CircleAlert } from 'lucide-react'
 import { Badge } from './ui/badge'
 
@@ -7,7 +8,11 @@ export function Scores({ scores, min = 0.02 }: { scores: Record<string, unknown>
     .filter(([k, v]) => k !== '_meta' && typeof v === 'number' && v >= min)
     .sort((a, b) => (b[1] as number) - (a[1] as number))
   if (rows.length === 0)
-    return <p className="text-sm text-muted-foreground">No category scored above {min}.</p>
+    return (
+      <p className="text-sm text-muted-foreground">
+        {t('No category scored above')} {min}.
+      </p>
+    )
   return (
     <ul className="flex flex-col gap-2.5">
       {rows.map(([cat, v]) => (
@@ -15,8 +20,8 @@ export function Scores({ scores, min = 0.02 }: { scores: Record<string, unknown>
           key={cat}
           className="grid grid-cols-[minmax(0,9.5rem)_1fr_2.5rem] items-center gap-3 text-sm sm:grid-cols-[12rem_1fr_2.5rem]"
         >
-          <span className="truncate" title={cat}>
-            {cat}
+          <span className="truncate" title={t(cat)}>
+            {t(cat)}
           </span>
           <span className="h-2 rounded-full bg-surface-2" aria-hidden>
             <span
