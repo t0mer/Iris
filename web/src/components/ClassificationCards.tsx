@@ -1,15 +1,16 @@
+import { strings, t } from '../lib/i18n'
 import type { Classification } from '../lib/types'
 import { Scores } from './Scores'
 import { Badge } from './ui/badge'
 
 const STAGE: Record<string, string> = {
-  moderation: 'First check',
-  context: 'Second look, with the chat around it',
+  moderation: strings.classification.firstCheck,
+  context: strings.classification.secondLook,
 }
 const BAND: Record<string, { label: string; tone: 'success' | 'warning' | 'danger' }> = {
-  safe: { label: 'Fine', tone: 'success' },
-  inconclusive: { label: 'Unclear', tone: 'warning' },
-  harmful: { label: 'Harmful', tone: 'danger' },
+  safe: { label: strings.classification.fine, tone: 'success' },
+  inconclusive: { label: strings.classification.unclear, tone: 'warning' },
+  harmful: { label: strings.classification.harmful, tone: 'danger' },
 }
 
 /** How Iris decided: one card per stage, with the score for every category that registered. */
@@ -17,7 +18,7 @@ export function ClassificationCards({ items }: { items: Classification[] }) {
   if (items.length === 0)
     return (
       <p className="rounded-lg border bg-surface p-4 text-sm text-muted-foreground">
-        Not checked yet. Iris classifies new messages within a few seconds.
+        {t('classification.notCheckedYet')}
       </p>
     )
   return (

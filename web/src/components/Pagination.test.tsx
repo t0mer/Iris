@@ -20,13 +20,13 @@ test('pages forward and back and disables the ends', async () => {
   const { rerender } = render(
     <Pagination page={1} pageSize={25} total={60} noun={noun} onPage={onPage} />,
   )
-  expect(screen.getByText('1 to 25 of 60 messages')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: /Previous/ })).toBeDisabled()
-  await userEvent.click(screen.getByRole('button', { name: /Next/ }))
+  expect(screen.getByText('1 עד 25 מתוך 60 messages')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /הקודם/ })).toBeDisabled()
+  await userEvent.click(screen.getByRole('button', { name: /הבא/ }))
   expect(onPage).toHaveBeenCalledWith(2)
   rerender(<Pagination page={3} pageSize={25} total={60} noun={noun} onPage={onPage} />)
-  expect(screen.getByText('51 to 60 of 60 messages')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: /Next/ })).toBeDisabled()
+  expect(screen.getByText('51 עד 60 מתוך 60 messages')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /הבא/ })).toBeDisabled()
 })
 
 test('a page past the end explains itself and still offers a way back', async () => {
@@ -34,7 +34,7 @@ test('a page past the end explains itself and still offers a way back', async ()
   render(
     <Pagination page={4} pageSize={25} total={12} noun={['message', 'messages']} onPage={onPage} />,
   )
-  expect(screen.getByText(/Nothing on page 4/)).toBeInTheDocument()
-  await userEvent.click(screen.getByRole('button', { name: /Previous/ }))
+  expect(screen.getByText(/אין כלום בעמוד 4/)).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: /הקודם/ }))
   expect(onPage).toHaveBeenCalledWith(3)
 })

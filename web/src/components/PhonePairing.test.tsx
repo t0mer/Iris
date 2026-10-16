@@ -1,3 +1,4 @@
+import { he } from '../lib/he'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PhonePairing } from './PhonePairing'
@@ -15,7 +16,7 @@ function setup() {
       calls.push({ url, method: init?.method || 'GET' })
       if (init?.method === 'DELETE') return new Response(null, { status: 204 })
       if (fail)
-        return new Response(JSON.stringify({ detail: 'OpenWA unavailable' }), { status: 502 })
+        return new Response(JSON.stringify({ detail: he('OpenWA unavailable') }), { status: 502 })
       return new Response(
         JSON.stringify(
           url === '/api/pairing'
@@ -49,8 +50,8 @@ function setup() {
 
 test('shows QR before other form fields exist and unregisters on exit', async () => {
   const { calls, rendered } = setup()
-  await userEvent.click(screen.getByRole('button', { name: 'Get pairing QR' }))
-  expect(await screen.findByRole('img', { name: 'WhatsApp pairing QR code' })).toHaveAttribute(
+  await userEvent.click(screen.getByRole('button', { name: he('Get pairing QR') }))
+  expect(await screen.findByRole('img', { name: he('WhatsApp pairing QR code') })).toHaveAttribute(
     'src',
     qr,
   )
@@ -60,9 +61,9 @@ test('shows QR before other form fields exist and unregisters on exit', async ()
 
 test('manual refresh clears old QR and requests a new code', async () => {
   const { calls } = setup()
-  await userEvent.click(screen.getByRole('button', { name: 'Get pairing QR' }))
+  await userEvent.click(screen.getByRole('button', { name: he('Get pairing QR') }))
   await screen.findByRole('img')
-  await userEvent.click(screen.getByRole('button', { name: 'Refresh QR' }))
+  await userEvent.click(screen.getByRole('button', { name: he('Refresh QR') }))
   expect(screen.queryByRole('img')).not.toBeInTheDocument()
   expect(calls).toContainEqual({ url: '/api/pairing/draft-token/refresh', method: 'POST' })
 })
@@ -72,7 +73,7 @@ test('polling keeps the current OpenWA QR without restarting at 45 seconds', asy
   try {
     const { calls } = setup()
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Get pairing QR' }))
+      fireEvent.click(screen.getByRole('button', { name: he('Get pairing QR') }))
       await vi.advanceTimersByTimeAsync(0)
     })
     expect(screen.getByRole('img')).toBeInTheDocument()
@@ -89,8 +90,8 @@ test('polling keeps the current OpenWA QR without restarting at 45 seconds', asy
 test('a failed OpenWA connection never shows QR', async () => {
   const { setFail } = setup()
   setFail()
-  await userEvent.click(screen.getByRole('button', { name: 'Get pairing QR' }))
-  expect(await screen.findByRole('alert')).toHaveTextContent('OpenWA unavailable')
+  await userEvent.click(screen.getByRole('button', { name: he('Get pairing QR') }))
+  expect(await screen.findByRole('alert')).toHaveTextContent(he('OpenWA unavailable'))
   expect(screen.queryByRole('img')).not.toBeInTheDocument()
 })
 
@@ -99,7 +100,7 @@ test('polling errors remove a previously displayed QR', async () => {
   try {
     const { setFail } = setup()
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Get pairing QR' }))
+      fireEvent.click(screen.getByRole('button', { name: he('Get pairing QR') }))
       await vi.advanceTimersByTimeAsync(0)
     })
     expect(screen.getByRole('img')).toBeInTheDocument()
@@ -108,7 +109,7 @@ test('polling errors remove a previously displayed QR', async () => {
       await vi.advanceTimersByTimeAsync(5000)
     })
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
-    expect(screen.getByRole('alert')).toHaveTextContent('OpenWA unavailable')
+    expect(screen.getByRole('alert')).toHaveTextContent(he('OpenWA unavailable'))
   } finally {
     vi.useRealTimers()
   }
@@ -116,7 +117,7 @@ test('polling errors remove a previously displayed QR', async () => {
 
 test('saved sessions are retained when form closes', async () => {
   const { calls, savedToken, rendered } = setup()
-  await userEvent.click(screen.getByRole('button', { name: 'Get pairing QR' }))
+  await userEvent.click(screen.getByRole('button', { name: he('Get pairing QR') }))
   await screen.findByRole('img')
   savedToken.current = 'draft-token'
   rendered.unmount()
@@ -125,7 +126,7 @@ test('saved sessions are retained when form closes', async () => {
 
 test('undisplayable QR triggers automatic regeneration', async () => {
   const { calls } = setup()
-  await userEvent.click(screen.getByRole('button', { name: 'Get pairing QR' }))
+  await userEvent.click(screen.getByRole('button', { name: he('Get pairing QR') }))
   fireEvent.error(await screen.findByRole('img'))
   await waitFor(() =>
     expect(calls).toContainEqual({ url: '/api/pairing/draft-token/refresh', method: 'POST' }),
@@ -145,16 +146,16 @@ test('starting a slow session immediately shows activity and feedback', async ()
     ),
   )
   render(<PhonePairing name="" onChange={vi.fn()} savedToken={{ current: null }} />)
-  await userEvent.click(screen.getByRole('button', { name: 'Get pairing QR' }))
-  expect(screen.getByRole('status')).toHaveTextContent('Pairing started')
+  await userEvent.click(screen.getByRole('button', { name: he('Get pairing QR') }))
+  expect(screen.getByRole('status')).toHaveTextContent('הקישור התחיל')
   expect(
-    screen.getByRole('progressbar', { name: 'Waiting for WhatsApp pairing' }),
+    screen.getByRole('progressbar', { name: he('Waiting for WhatsApp pairing') }),
   ).toBeInTheDocument()
-  expect(screen.getByText(/Elapsed: 0s/)).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Connecting to OpenWA…' })).toBeDisabled()
+  expect(screen.getByText(/זמן שחלף:.*0/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: he('Connecting to OpenWA…') })).toBeDisabled()
   await act(async () =>
-    finish(new Response(JSON.stringify({ detail: 'OpenWA unavailable' }), { status: 502 })),
+    finish(new Response(JSON.stringify({ detail: he('OpenWA unavailable') }), { status: 502 })),
   )
-  expect(await screen.findByRole('alert')).toHaveTextContent('OpenWA unavailable')
+  expect(await screen.findByRole('alert')).toHaveTextContent(he('OpenWA unavailable'))
   expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
 })

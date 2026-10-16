@@ -7,6 +7,7 @@ import {
   Loader2,
   ShieldOff,
 } from 'lucide-react'
+import { strings, t } from '../lib/i18n'
 import type { Message } from '../lib/types'
 import { useReveal } from '../lib/useReveal'
 import { Concealed, RevealButton } from './Reveal'
@@ -17,11 +18,16 @@ export function MessageBody({ m, revealed = false }: { m: Message; revealed?: bo
   if (m.redacted)
     return (
       <span className="inline-flex items-center gap-1.5 italic text-muted-foreground">
-        <ShieldOff className="size-4" /> Content withheld on purpose and never stored.
+        <ShieldOff className="size-4" /> {t('messageBody.withheld')}
       </span>
     )
   const body = m.text || m.transcript
-  if (!body) return <em className="text-muted-foreground">[{m.type}]</em>
+  if (!body)
+    return (
+      <em className="text-muted-foreground">
+        [{(strings.messageTypes as Record<string, string>)[m.type] ?? m.type}]
+      </em>
+    )
   return (
     <span dir="auto" className="whitespace-pre-wrap break-words">
       <Concealed revealed={revealed} length={body.length}>
@@ -44,7 +50,7 @@ export function RevealableMessage({ m }: { m: Message }) {
         <RevealButton
           revealed={revealed}
           onToggle={toggle}
-          context={`message from ${m.sender_name ?? 'unknown sender'}`}
+          context={t('messageBody.messageFrom', m.sender_name ?? t('messageBody.unknownSender'))}
         />
       )}
     </span>
@@ -65,9 +71,13 @@ const BADGE = {
 export function VerdictBadge({ m }: { m: Pick<Message, 'verdict' | 'status' | 'failure'> }) {
   const label = m.verdict ?? m.status
   const b = BADGE[label as keyof typeof BADGE] ?? BADGE.pending
+  const text =
+    (strings.verdicts as Record<string, string>)[label] ??
+    (strings.statuses as Record<string, string>)[label] ??
+    label
   return (
     <Badge tone={b.tone} title={m.failure ?? undefined}>
-      <b.icon /> {label}
+      <b.icon /> {text}
     </Badge>
   )
 }

@@ -6,7 +6,7 @@ const length = (c: Element) => Number(c.getAttribute('stroke-dasharray')!.split(
 
 test('calm is a single full violet ring that says nothing needs attention', () => {
   const { container } = render(<IrisRing alerts={0} review={0} />)
-  expect(screen.getByRole('img', { name: 'Nothing needs your attention' })).toBeInTheDocument()
+  expect(screen.getByRole('img', { name: 'שום דבר לא דורש תשומת לב כרגע' })).toBeInTheDocument()
   const [only, ...rest] = arcs(container)
   expect(rest).toHaveLength(0)
   expect(only.getAttribute('stroke')).toBe('var(--primary)')
@@ -14,7 +14,7 @@ test('calm is a single full violet ring that says nothing needs attention', () =
 
 test('alerts and review items become coral and saffron arcs sized by their counts', () => {
   const { container } = render(<IrisRing alerts={3} review={1} />)
-  expect(screen.getByRole('img', { name: '4 need your attention' })).toBeInTheDocument()
+  expect(screen.getByRole('img', { name: '4 דורשות תשומת לב' })).toBeInTheDocument()
   const [alerts, review] = arcs(container)
   expect(alerts.getAttribute('stroke')).toBe('var(--danger)')
   expect(review.getAttribute('stroke')).toBe('var(--chart-review)')

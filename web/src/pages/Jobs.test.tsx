@@ -36,6 +36,6 @@ test('lists failed jobs with their error and retries one', async () => {
     </QueryClientProvider>,
   )
   expect(await screen.findByText(/OpenWA has no stored media/)).toBeInTheDocument()
-  await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+  await userEvent.click(screen.getByRole('button', { name: 'ניסיון נוסף' }))
   expect(calls).toContain('POST /api/jobs/7/retry')
 })

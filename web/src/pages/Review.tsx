@@ -14,6 +14,7 @@ import { Skeleton } from '../components/ui/skeleton'
 import { api, ApiError } from '../lib/api'
 import { cn } from '../lib/cn'
 import { relativeTime } from '../lib/format'
+import { strings, t } from '../lib/i18n'
 import type { ReviewPage } from '../lib/types'
 import { QueryError } from '../components/QueryError'
 
@@ -30,26 +31,20 @@ export function Review() {
         body: JSON.stringify({ resolution: v.resolution }),
       }),
     onSuccess: (_d, v) => {
-      toast.success(
-        v.resolution === 'safe' ? 'Marked safe.' : 'Marked harmful. An alert was created.',
-      )
+      toast.success(v.resolution === 'safe' ? t('review.markedSafe') : t('review.markedHarmful'))
       return qc.invalidateQueries()
     },
-    onError: (e) =>
-      toast.error(e instanceof ApiError ? e.message : 'Could not save your decision. Try again.'),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('review.saveFailed')),
   })
   return (
     <div className="flex max-w-3xl flex-col gap-5">
-      <PageHeader
-        title="Review"
-        description="Messages Iris could not decide on, even with the chat around them. Your call."
-      />
+      <PageHeader title={t('review.title')} description={t('review.description')} />
       {isLoading && <Skeleton className="h-40" />}
-      {isError && <QueryError what="the review queue" onRetry={() => void refetch()} />}
+      {isError && <QueryError what={t('review.couldNotLoad')} onRetry={() => void refetch()} />}
       {data && data.items.length === 0 && (
         <div className="rounded-lg border bg-surface">
-          <EmptyState icon={ListChecks} title="Nothing to review">
-            When Iris cannot tell whether a message is harmful, it waits here for you.
+          <EmptyState icon={ListChecks} title={t('review.nothingToReview')}>
+            {t('review.nothingToReviewBody')}
           </EmptyState>
         </div>
       )}
@@ -64,9 +59,13 @@ export function Review() {
           >
             <div className="flex flex-wrap items-center gap-3">
               <KidStack names={m.kids.map((k) => k.kid_name)} />
-              <span className="font-medium">{m.kids.map((k) => k.kid_name).join(' and ')}</span>
+              <span className="font-medium">
+                {strings.names.join(m.kids.map((k) => k.kid_name))}
+              </span>
               {m.chat_name && (
-                <span className="text-sm text-muted-foreground">in {m.chat_name}</span>
+                <span className="text-sm text-muted-foreground">
+                  {strings.names.in(m.chat_name)}
+                </span>
               )}
               <span className="ms-auto text-xs text-muted-foreground">
                 {relativeTime(m.sent_at)}
@@ -83,7 +82,9 @@ export function Review() {
             </div>
             {classifications.slice(-1).map((c) => (
               <details key={c.id} className="group rounded-md bg-surface-2/60 p-3">
-                <summary className="cursor-pointer text-sm font-medium">Why it is unclear</summary>
+                <summary className="cursor-pointer text-sm font-medium">
+                  {t('review.whyUnclear')}
+                </summary>
                 <div className="mt-3">
                   <Scores scores={c.scores} min={0.05} />
                 </div>
@@ -96,7 +97,7 @@ export function Review() {
                 disabled={resolve.isPending}
                 onClick={() => resolve.mutate({ id: m.id, resolution: 'safe' })}
               >
-                <Check /> Mark safe
+                <Check /> {t('review.markSafe')}
               </Button>
               <Button
                 variant="danger"
@@ -104,11 +105,11 @@ export function Review() {
                 disabled={resolve.isPending}
                 onClick={() => resolve.mutate({ id: m.id, resolution: 'harmful' })}
               >
-                <ShieldAlert /> Mark harmful
+                <ShieldAlert /> {t('review.markHarmful')}
               </Button>
               <Button asChild variant="ghost" size="lg" className="col-span-2 sm:col-span-1">
                 <Link to={`/messages/${m.id}`}>
-                  <MessagesSquare /> See the conversation
+                  <MessagesSquare /> {t('review.seeConversation')}
                 </Link>
               </Button>
             </div>

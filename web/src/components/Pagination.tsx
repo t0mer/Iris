@@ -1,4 +1,5 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { t } from '../lib/i18n'
 import { Button } from './ui/button'
 
 export function Pagination({
@@ -27,15 +28,13 @@ export function Pagination({
   const pastEnd = from > total
   const to = Math.min(page * pageSize, total)
   return (
-    <nav aria-label="Pages" className="flex items-center justify-between gap-3">
+    <nav aria-label={t('ui.pagesNav')} className="flex items-center justify-between gap-3">
       <p className="tabular text-sm text-muted-foreground">
-        {pastEnd
-          ? `Nothing on page ${page}. There ${total === 1 ? 'is' : 'are'} ${total} ${label}.`
-          : `${from} to ${to} of ${total} ${label}`}
+        {pastEnd ? t('ui.noneOnPage', page, total, label) : t('ui.rangeOf', from, to, total, label)}
       </p>
       <div className="flex gap-2">
         <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>
-          <ChevronLeft className="rtl:rotate-180" /> Previous
+          <ChevronLeft className="rtl:rotate-180" /> {t('ui.previous')}
         </Button>
         <Button
           variant="outline"
@@ -43,7 +42,7 @@ export function Pagination({
           disabled={page >= pages}
           onClick={() => onPage(page + 1)}
         >
-          Next <ChevronRight className="rtl:rotate-180" />
+          {t('ui.next')} <ChevronRight className="rtl:rotate-180" />
         </Button>
       </div>
     </nav>

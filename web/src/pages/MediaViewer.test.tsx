@@ -26,26 +26,23 @@ function page(routes: Record<string, unknown>) {
 
 test('shows the file with links to its alert and conversation', async () => {
   page({ '/api/media/9/info': info })
-  expect(await screen.findByText('Photo hidden')).toBeInTheDocument() // hidden until shown
+  expect(await screen.findByText('תמונה מוסתרת')).toBeInTheDocument() // hidden until shown
   expect(screen.queryByRole('img')).not.toBeInTheDocument()
-  await userEvent.click(screen.getByRole('button', { name: 'Show photo' }))
-  expect(await screen.findByRole('img', { name: /photo kept/ })).toHaveAttribute(
+  await userEvent.click(screen.getByRole('button', { name: 'הצגת תמונה' }))
+  expect(await screen.findByRole('img', { name: /התמונה שנשמרה/ })).toHaveAttribute(
     'src',
     '/api/media/9',
   )
-  expect(screen.getByRole('heading', { name: 'Photo' })).toBeInTheDocument()
-  expect(screen.getByText('image/png, 1.4 MB')).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: /See the alert/ })).toHaveAttribute('href', '/alerts/3')
-  expect(screen.getByRole('link', { name: /See the conversation/ })).toHaveAttribute(
-    'href',
-    '/messages/4',
-  )
+  expect(screen.getByRole('heading', { name: 'תמונה' })).toBeInTheDocument()
+  expect(screen.getByText('image/png, 1.4 מ״ב')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: /צפייה בהתראה/ })).toHaveAttribute('href', '/alerts/3')
+  expect(screen.getByRole('link', { name: /צפייה בשיחה/ })).toHaveAttribute('href', '/messages/4')
 })
 
 test('omits the alert link when the media has no alert', async () => {
   page({ '/api/media/9/info': { ...info, alert_id: null } })
-  await screen.findByText('Photo hidden')
-  expect(screen.queryByRole('link', { name: /See the alert/ })).not.toBeInTheDocument()
+  await screen.findByText('תמונה מוסתרת')
+  expect(screen.queryByRole('link', { name: /צפייה בהתראה/ })).not.toBeInTheDocument()
 })
 
 test('a file that is gone says so instead of failing', async () => {
@@ -67,7 +64,7 @@ test('a file that is gone says so instead of failing', async () => {
       </MemoryRouter>
     </QueryClientProvider>,
   )
-  expect(await screen.findByText('This file is no longer kept')).toBeInTheDocument()
+  expect(await screen.findByText('הקובץ הזה כבר לא נשמר')).toBeInTheDocument()
 })
 
 test('an address that is not a number is simply "no longer kept"', async () => {
@@ -78,12 +75,12 @@ test('an address that is not a number is simply "no longer kept"', async () => {
     {},
     '/media/abc',
   )
-  expect(await screen.findByText('This file is no longer kept')).toBeInTheDocument()
+  expect(await screen.findByText('הקובץ הזה כבר לא נשמר')).toBeInTheDocument()
   expect(calls.length).toBe(0)
 })
 
 test('a video is called a video, not a voice note', async () => {
   page({ '/api/media/9/info': { ...info, kind: 'video', content_type: 'video/mp4' } })
-  expect(await screen.findByRole('button', { name: 'Show video' })).toBeInTheDocument()
-  expect(screen.getByText('Video hidden')).toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: 'הצגת וידאו' })).toBeInTheDocument()
+  expect(screen.getByText('וידאו מוסתרת')).toBeInTheDocument()
 })

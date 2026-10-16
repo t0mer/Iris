@@ -1,3 +1,4 @@
+import { he } from '../lib/he'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { LoaderCircle } from 'lucide-react'
@@ -60,7 +61,7 @@ export function RepairPhone({
       }
     } catch (error) {
       setFinishError(
-        error instanceof Error ? error.message : 'Webhook registration failed. Retry below.',
+        error instanceof Error ? error.message : he('Webhook registration failed. Retry below.'),
       )
     } finally {
       setFinishing(false)
@@ -89,15 +90,17 @@ export function RepairPhone({
       }}
     >
       <DialogTrigger asChild>
-        <Button variant="outline">Re-pair WhatsApp</Button>
+        <Button variant="outline">{he('Re-pair WhatsApp')}</Button>
       </DialogTrigger>
       <DialogContent
-        title={`Re-pair ${phone.kid_name}`}
-        description="Reconnect the existing WhatsApp session. Closing this window never deletes your phone or session."
+        title={he('Re-pair {name}', { name: phone.kid_name })}
+        description={he(
+          'Reconnect the existing WhatsApp session. Closing this window never deletes your phone or session.',
+        )}
       >
         {check.data?.qr && !check.isError && (
           <img
-            alt="WhatsApp re-pairing QR code"
+            alt={he('WhatsApp re-pairing QR code')}
             src={check.data.qr}
             className="mx-auto aspect-square w-full max-w-64 rounded-md bg-white p-2"
             onError={() => void check.refetch()}
@@ -108,18 +111,18 @@ export function RepairPhone({
             <LoaderCircle aria-hidden className="size-5 animate-spin" />
           )}
           {finishing
-            ? 'Connected. Restoring monitoring…'
+            ? he('Connected. Restoring monitoring…')
             : check.data?.status === 'authenticating'
-              ? 'Scan received. Confirming WhatsApp connection…'
+              ? he('Scan received. Confirming WhatsApp connection…')
               : check.data?.qr
-                ? 'WhatsApp → Linked devices → Link a device. QR changes update automatically.'
+                ? he('WhatsApp → Linked devices → Link a device. QR changes update automatically.')
                 : check.isError
-                  ? 'Connection check failed.'
-                  : 'Checking the existing session and waiting for OpenWA to provide a QR…'}
+                  ? he('Connection check failed.')
+                  : he('Checking the existing session and waiting for OpenWA to provide a QR…')}
         </p>
         {check.isError && (
           <p role="alert" className="text-sm text-danger">
-            {check.error instanceof Error ? check.error.message : 'OpenWA unavailable'}
+            {check.error instanceof Error ? check.error.message : he('OpenWA unavailable')}
           </p>
         )}
         {finishError && (
@@ -128,12 +131,12 @@ export function RepairPhone({
               {finishError}
             </p>
             <Button disabled={finishing} onClick={() => void finish()}>
-              Retry restoring monitoring
+              {he('Retry restoring monitoring')}
             </Button>
           </>
         )}
         <Button onClick={() => void check.refetch()} disabled={check.isFetching || finishing}>
-          Refresh QR / check connection
+          {he('Refresh QR / check connection')}
         </Button>
       </DialogContent>
     </Dialog>

@@ -654,3 +654,11 @@ MIT License. See [LICENSE](LICENSE).
 ## Optional local providers (beta)
 
 The [beta local deployment guide](docker-compose/local/README.md) describes opt-in Ollama moderation, a native Apple Silicon transcription companion, parent recipient management and QR pairing. Existing cloud defaults remain unchanged. Read the guide's validation limits before deploying this beta for monitoring.
+
+## Interface language
+
+English remains the default. Use the **Language / שפה** selector on the sign-in screen or above the signed-in content to choose English or Hebrew. The choice is stored in this browser. Changing it reloads the current page, so save any unfinished form edits first. If browser storage is blocked, the selector reports that the preference could not be saved.
+
+Hebrew uses `lang="he"`, right-to-left navigation and controls, localized dates, and Hebrew PWA metadata. English uses left-to-right layout. User-authored messages and numeric/URL fields retain automatic text direction. The English and Hebrew dictionaries use the same keys and parameter shapes.
+
+This is a browser UI preference; it does not change server-generated WhatsApp alerts or another browser's language. No monitoring, classification, delivery or server configuration behavior is changed by selecting a language.

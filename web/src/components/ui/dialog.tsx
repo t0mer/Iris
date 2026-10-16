@@ -1,3 +1,4 @@
+import { he } from '../../lib/he'
 import * as AlertPrimitive from '@radix-ui/react-alert-dialog'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
@@ -30,7 +31,7 @@ export function DialogContent({
         {...(description ? {} : { 'aria-describedby': undefined })}
         className={cn(
           'fixed inset-x-0 bottom-0 z-50 flex max-h-[88dvh] flex-col gap-4 overflow-y-auto rounded-t-xl border border-border bg-surface p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-overlay',
-          'md:inset-x-auto md:bottom-auto md:left-1/2 md:top-1/2 md:w-full md:max-w-md md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-lg',
+          'md:inset-x-auto md:bottom-auto md:start-1/2 md:top-1/2 md:w-full md:max-w-md md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-lg md:rtl:translate-x-1/2',
           className,
         )}
       >
@@ -44,7 +45,7 @@ export function DialogContent({
             )}
           </div>
           <DialogPrimitive.Close asChild>
-            <Button variant="ghost" size="icon" aria-label="Close" className="-me-2 -mt-2">
+            <Button variant="ghost" size="icon" aria-label={he('Close')} className="-me-2 -mt-2">
               <X />
             </Button>
           </DialogPrimitive.Close>
@@ -92,7 +93,7 @@ export function ConfirmDialog({
       <AlertPrimitive.Trigger asChild>{trigger}</AlertPrimitive.Trigger>
       <AlertPrimitive.Portal>
         <AlertPrimitive.Overlay className={overlay} />
-        <AlertPrimitive.Content className="fixed left-1/2 top-1/2 z-50 flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-lg border border-border bg-surface p-5 shadow-overlay">
+        <AlertPrimitive.Content className="fixed start-1/2 top-1/2 z-50 flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-lg border border-border bg-surface p-5 shadow-overlay rtl:translate-x-1/2">
           <AlertPrimitive.Title className="text-lg font-semibold">{title}</AlertPrimitive.Title>
           <AlertPrimitive.Description className="text-sm text-muted-foreground">
             {description}
@@ -101,7 +102,7 @@ export function ConfirmDialog({
           <div className="flex flex-wrap justify-end gap-2">
             <AlertPrimitive.Cancel asChild>
               <Button variant="outline" disabled={pending}>
-                Cancel
+                {he('Cancel')}
               </Button>
             </AlertPrimitive.Cancel>
             <AlertPrimitive.Action asChild>

@@ -1,7 +1,10 @@
+import { dir } from '../../lib/language'
 import * as TabsPrimitive from '@radix-ui/react-tabs'
 import { cn } from '../../lib/cn'
 
-export const Tabs = TabsPrimitive.Root
+export function Tabs(props: TabsPrimitive.TabsProps) {
+  return <TabsPrimitive.Root dir={dir} {...props} />
+}
 
 export function TabsList({ className, ...props }: TabsPrimitive.TabsListProps) {
   return <TabsPrimitive.List className={cn('flex gap-1 overflow-x-auto', className)} {...props} />

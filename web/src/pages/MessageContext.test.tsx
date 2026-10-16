@@ -43,19 +43,19 @@ function page(redacted = false) {
 
 test('the whole conversation is hidden until the eye is pressed', async () => {
   page()
-  await screen.findAllByText('Content hidden')
+  await screen.findAllByText('התוכן מוסתר')
   expect(screen.queryByText('the first line')).not.toBeInTheDocument()
   expect(screen.queryByText('the second line')).not.toBeInTheDocument()
-  await userEvent.click(screen.getByRole('button', { name: 'Show content' }))
+  await userEvent.click(screen.getByRole('button', { name: 'הצגת תוכן' }))
   expect(await screen.findByText('the first line')).toBeInTheDocument()
   expect(screen.getByText('the second line')).toBeInTheDocument()
 })
 
 test('a withheld message stays withheld, with no way to show it', async () => {
   page(true)
-  expect(await screen.findAllByText(/withheld on purpose and never stored/)).not.toHaveLength(0)
+  expect(await screen.findAllByText(/התוכן נחסם במכוון ולא נשמר/)).not.toHaveLength(0)
   // The neighbours of a withheld message are ordinary messages, so the eye is still offered.
-  expect(await screen.findByRole('button', { name: 'Show content' })).toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: /Check again/ })).not.toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: 'הצגת תוכן' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /בדיקה מחדש/ })).not.toBeInTheDocument()
   expect(screen.queryByText('the second line')).not.toBeInTheDocument()
 })

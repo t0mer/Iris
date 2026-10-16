@@ -1,3 +1,4 @@
+import { he } from '../lib/he'
 import { screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render } from '@testing-library/react'
@@ -22,15 +23,15 @@ function renderFailing(ui: React.ReactNode) {
 }
 
 test.each([
-  { name: 'Phones', page: () => <Instances />, what: /your phones/ },
-  { name: 'Review', page: () => <Review />, what: /the review queue/ },
-  { name: 'Jobs', page: () => <Jobs />, what: /the jobs/ },
-  { name: 'Chats', page: () => <Chats />, what: /your chats/ },
+  { name: he('Phones'), page: () => <Instances />, what: /הטלפונים שלך/ },
+  { name: he('Review'), page: () => <Review />, what: /תור הבדיקה/ },
+  { name: he('Jobs'), page: () => <Jobs />, what: /המשימות/ },
+  { name: he('Chats'), page: () => <Chats />, what: /הצ׳אטים שלך/ },
 ])(
   '$name says what failed to load and offers to try again, instead of a blank page',
   async ({ page, what }) => {
     renderFailing(page())
     expect(await screen.findByRole('alert')).toHaveTextContent(what)
-    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'ניסיון נוסף' })).toBeInTheDocument()
   },
 )

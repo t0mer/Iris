@@ -40,21 +40,21 @@ function page(a: unknown) {
 
 test('everything stored is hidden until the eye is pressed', async () => {
   const calls = page({ ...alert, media })
-  await screen.findByRole('heading', { name: 'Kept media' })
+  await screen.findByRole('heading', { name: 'מדיה שנשמרה' })
   expect(screen.queryByText('I will find you')).not.toBeInTheDocument()
-  expect(screen.queryByRole('img', { name: /photo kept/ })).not.toBeInTheDocument()
-  expect(screen.getByText('Photo hidden')).toBeInTheDocument()
+  expect(screen.queryByRole('img', { name: /התמונה שנשמרה/ })).not.toBeInTheDocument()
+  expect(screen.getByText('תמונה מוסתרת')).toBeInTheDocument()
   expect(calls.every((c) => !c.url.includes('/api/media/7'))).toBe(true)
-  await userEvent.click(screen.getByRole('button', { name: 'Show content' }))
+  await userEvent.click(screen.getByRole('button', { name: 'הצגת תוכן' }))
   expect(await screen.findByText('I will find you')).toBeInTheDocument()
-  expect(screen.getByRole('img', { name: /photo kept/ })).toHaveAttribute('src', '/api/media/7')
-  await userEvent.click(screen.getByRole('button', { name: 'Hide content' }))
+  expect(screen.getByRole('img', { name: /התמונה שנשמרה/ })).toHaveAttribute('src', '/api/media/7')
+  await userEvent.click(screen.getByRole('button', { name: 'הסתרת תוכן' }))
   expect(screen.queryByText('I will find you')).not.toBeInTheDocument()
 })
 
 test('keeps a link to the media on its own page', async () => {
   page({ ...alert, media })
-  expect(await screen.findByRole('link', { name: 'Open on its own page' })).toHaveAttribute(
+  expect(await screen.findByRole('link', { name: 'פתיחה בעמוד משלה' })).toHaveAttribute(
     'href',
     '/media/7',
   )
@@ -62,27 +62,22 @@ test('keeps a link to the media on its own page', async () => {
 
 test('has no media section when nothing is kept', async () => {
   page({ ...alert, media: null })
-  await screen.findByRole('heading', { name: 'The message' })
-  expect(screen.queryByRole('heading', { name: 'Kept media' })).not.toBeInTheDocument()
+  await screen.findByRole('heading', { name: 'ההודעה' })
+  expect(screen.queryByRole('heading', { name: 'מדיה שנשמרה' })).not.toBeInTheDocument()
 })
 
 test('a withheld alert says why there is nothing to show, and has no eye', async () => {
   page({ ...alert, redacted: true, quote: null, media })
-  expect(
-    await screen.findByText(/Withheld on purpose, so there is nothing to show/),
-  ).toBeInTheDocument()
-  expect(screen.getByText(/never stored the content/)).toBeInTheDocument()
-  expect(screen.getByText(/open the chat directly in WhatsApp/)).toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: /Show content/ })).not.toBeInTheDocument()
-  expect(screen.queryByRole('img', { name: /photo kept/ })).not.toBeInTheDocument()
+  expect(await screen.findByText(/התוכן הוסתר במכוון, כך שאין מה להציג/)).toBeInTheDocument()
+  expect(screen.getByText(/התוכן הוסתר לאחר הסיווג/)).toBeInTheDocument()
+  expect(screen.getByText(/לפתוח את הצ׳אט ישירות בוואטסאפ/)).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /הצגת תוכן/ })).not.toBeInTheDocument()
+  expect(screen.queryByRole('img', { name: /התמונה שנשמרה/ })).not.toBeInTheDocument()
 })
 
 test('an uncertain item kept out of the alert points to the conversation', async () => {
   page({ ...alert, quote: null, media: null })
-  expect(await screen.findByText('Kept out of this alert')).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: /Read it in the conversation/ })).toHaveAttribute(
-    'href',
-    '/messages/4',
-  )
-  expect(screen.queryByRole('button', { name: /Show content/ })).not.toBeInTheDocument()
+  expect(await screen.findByText('לא נכלל בהתראה הזו')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: /קריאה בשיחה/ })).toHaveAttribute('href', '/messages/4')
+  expect(screen.queryByRole('button', { name: /הצגת תוכן/ })).not.toBeInTheDocument()
 })

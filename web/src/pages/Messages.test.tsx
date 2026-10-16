@@ -47,11 +47,11 @@ test('renders messages with a highlighted snippet and kid names', async () => {
   await screen.findByText(/Noa/)
   // Hidden by default: none of the real words are on the page until the eye is pressed.
   expect(screen.queryByText('שלום')).not.toBeInTheDocument()
-  expect(screen.getByText('Content hidden')).toBeInTheDocument()
-  await userEvent.click(screen.getByRole('button', { name: 'Show content' }))
+  expect(screen.getByText('התוכן מוסתר')).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'הצגת תוכן' }))
   expect((await screen.findByText('שלום')).tagName).toBe('MARK')
-  expect(screen.getByRole('button', { name: 'Hide content' })).toBeInTheDocument()
-  await userEvent.click(screen.getByRole('button', { name: 'Hide content' }))
+  expect(screen.getByRole('button', { name: 'הסתרת תוכן' })).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'הסתרת תוכן' }))
   expect(screen.queryByText('שלום')).not.toBeInTheDocument()
 })
 
@@ -67,7 +67,7 @@ test('a relative date filter fetches once instead of refetching on every render'
     { '/api/messages': emptyPage, '/api/instances': [] },
     '/messages?when=7d',
   )
-  await screen.findByText('No messages match')
+  await screen.findByText('אין הודעות תואמות')
   await new Promise((r) => setTimeout(r, 600)) // long enough for a render loop to pile up requests
   expect(messageCalls(calls).length).toBeLessThanOrEqual(2)
   expect(messageCalls(calls)[0].url).toContain('from=')
@@ -79,9 +79,9 @@ test('the debounced search does not revert a filter changed while the timer was 
     { '/api/messages': emptyPage, '/api/instances': [] },
     '/messages',
   )
-  await screen.findByText('No messages yet')
-  await userEvent.type(screen.getByRole('searchbox', { name: 'Search messages' }), 'hello')
-  await userEvent.click(screen.getByRole('button', { name: '7 days' })) // before the 300 ms pause ends
+  await screen.findByText('אין עדיין הודעות')
+  await userEvent.type(screen.getByRole('searchbox', { name: 'חיפוש הודעות' }), 'hello')
+  await userEvent.click(screen.getByRole('button', { name: '7 ימים' })) // before the 300 ms pause ends
   await new Promise((r) => setTimeout(r, 700))
   const last = messageCalls(calls).at(-1)!.url
   expect(last).toContain('q=hello')
@@ -94,7 +94,7 @@ test('a hand-edited page number never reaches the server as NaN', async () => {
     { '/api/messages': emptyPage, '/api/instances': [] },
     '/messages?page=abc',
   )
-  await screen.findByText('No messages yet')
+  await screen.findByText('אין עדיין הודעות')
   expect(messageCalls(calls)[0].url).toContain('page=1')
   expect(messageCalls(calls)[0].url).not.toContain('NaN')
 })

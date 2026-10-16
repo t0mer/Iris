@@ -6,7 +6,9 @@ import { App } from './App'
 import '@fontsource-variable/rubik'
 import './index.css'
 import { applyTheme, watchSystemTheme } from './lib/theme'
+import { applyLanguage } from './lib/language'
 
+applyLanguage()
 applyTheme()
 watchSystemTheme()
 

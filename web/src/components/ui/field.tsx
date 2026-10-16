@@ -11,11 +11,11 @@ const control =
   'min-h-11 min-w-0 w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-base md:text-sm text-foreground placeholder:text-muted-foreground disabled:opacity-60'
 
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={cn(control, className)} {...props} />
+  return <input dir="auto" className={cn(control, className)} {...props} />
 }
 
 export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea className={cn(control, 'min-h-24', className)} {...props} />
+  return <textarea dir="auto" className={cn(control, 'min-h-24', className)} {...props} />
 }
 
 /** A native select: it gets the operating system's own picker on phones, which beats any custom one. */

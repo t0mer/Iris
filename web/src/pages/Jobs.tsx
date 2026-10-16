@@ -9,13 +9,14 @@ import { Button } from '../components/ui/button'
 import { Skeleton } from '../components/ui/skeleton'
 import { api, ApiError } from '../lib/api'
 import { relativeTime } from '../lib/format'
+import { strings, t } from '../lib/i18n'
 import type { Job } from '../lib/types'
 import { QueryError } from '../components/QueryError'
 
 const WHAT: Record<string, string> = {
-  process_message: 'Checking a message',
-  deliver_alert: 'Sending an alert',
-  notify_change: 'Telling you a message changed',
+  process_message: strings.jobs.checkingMessage,
+  deliver_alert: strings.jobs.sendingAlert,
+  notify_change: strings.jobs.tellingChanged,
 }
 
 export function Jobs() {
@@ -28,19 +29,16 @@ export function Jobs() {
   const retry = useMutation({
     mutationFn: (id: number) => api(`/api/jobs/${id}/retry`, { method: 'POST' }),
     onSuccess: () => {
-      toast.success('Trying again.')
+      toast.success(t('jobs.retrying'))
       return qc.invalidateQueries()
     },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not retry the job.'),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('jobs.retryFailed')),
   })
   return (
     <div className="flex max-w-4xl flex-col gap-5">
-      <PageHeader
-        title="Jobs"
-        description="Work that failed or ran out of attempts. Fix the cause shown, then try again."
-      />
+      <PageHeader title={t('jobs.title')} description={t('jobs.description')} />
       {isLoading && <Skeleton className="h-32" />}
-      {isError && <QueryError what="the jobs" onRetry={() => void refetch()} />}
+      {isError && <QueryError what={t('jobs.couldNotLoad')} onRetry={() => void refetch()} />}
       <ul className="divide-y overflow-hidden rounded-lg border bg-surface">
         {data?.map((j) => (
           <li key={j.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3.5">
@@ -48,21 +46,24 @@ export function Jobs() {
               <span className="flex flex-wrap items-center gap-2">
                 <span className="font-medium">{WHAT[j.type] ?? j.type}</span>
                 <Badge tone="danger">
-                  <CircleAlert /> {j.status}
+                  <CircleAlert />{' '}
+                  {(strings.statuses as Record<string, string>)[j.status] ?? j.status}
                 </Badge>
                 <span className="text-xs text-muted-foreground">
-                  attempt {j.attempts} of {j.max_attempts}, {relativeTime(j.created_at)}
+                  {t('jobs.attemptOf', j.attempts, j.max_attempts)}, {relativeTime(j.created_at)}
                 </span>
               </span>
               {j.last_error && (
-                <span className="break-words text-sm text-danger">{j.last_error}</span>
+                <span dir="auto" className="break-words text-sm text-danger">
+                  {j.last_error}
+                </span>
               )}
               {j.message_id && (
                 <Link
                   to={`/messages/${j.message_id}`}
                   className="w-fit text-sm font-medium text-primary hover:underline"
                 >
-                  See the message
+                  {t('jobs.seeMessage')}
                 </Link>
               )}
             </span>
@@ -72,15 +73,14 @@ export function Jobs() {
               disabled={retry.isPending}
               onClick={() => retry.mutate(j.id)}
             >
-              <RotateCw /> Retry
+              <RotateCw /> {t('jobs.retry')}
             </Button>
           </li>
         ))}
         {data?.length === 0 && (
           <li>
-            <EmptyState icon={CheckCircle2} title="No failed jobs">
-              If a message cannot be checked or an alert cannot be sent, it appears here with the
-              reason.
+            <EmptyState icon={CheckCircle2} title={t('jobs.noneFailed')}>
+              {t('jobs.noneFailedBody')}
             </EmptyState>
           </li>
         )}

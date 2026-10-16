@@ -1,12 +1,13 @@
 import { Eye, EyeOff } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { t } from '../lib/i18n'
 import { Button } from './ui/button'
 
 /** The eye: shows or hides the content it belongs to. */
 export function RevealButton({
   revealed,
   onToggle,
-  label = 'content',
+  label,
   context,
   className,
 }: {
@@ -18,16 +19,18 @@ export function RevealButton({
   className?: string
 }) {
   const Icon = revealed ? EyeOff : Eye
+  const word = label ?? t('ui.contentLabel')
+  const verb = revealed ? t('ui.hide', word) : t('ui.show', word)
   return (
     <Button
       type="button"
       variant="outline"
       size="sm"
-      aria-label={context ? `${revealed ? 'Hide' : 'Show'} ${label}, ${context}` : undefined}
+      aria-label={context ? `${verb}, ${context}` : undefined}
       onClick={onToggle}
       className={className}
     >
-      <Icon /> {revealed ? `Hide ${label}` : `Show ${label}`}
+      <Icon /> {verb}
     </Button>
   )
 }
@@ -42,7 +45,7 @@ export function Masked({ length = 24 }: { length?: number }) {
       <span aria-hidden className="select-none blur-[3px]">
         {mask}
       </span>
-      <span className="sr-only">Content hidden</span>
+      <span className="sr-only">{t('ui.contentHidden')}</span>
     </>
   )
 }

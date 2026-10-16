@@ -1,5 +1,8 @@
 import '@testing-library/jest-dom/vitest'
 
+// Existing translated-screen tests run in Hebrew; language.test covers the English default.
+localStorage.setItem('iris-language', 'he')
+
 // jsdom lacks these; Radix and the layout hooks use them.
 class ResizeObserverStub {
   observe() {}

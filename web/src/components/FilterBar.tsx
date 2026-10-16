@@ -1,5 +1,6 @@
 import { SlidersHorizontal } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
+import { t } from '../lib/i18n'
 import { useIsDesktop } from '../lib/useMediaQuery'
 import { Button } from './ui/button'
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from './ui/dialog'
@@ -32,7 +33,7 @@ export function FilterBar({
             {children}
             {active > 0 && (
               <Button variant="ghost" size="sm" onClick={onClear}>
-                Clear filters
+                {t('filterBar.clearFilters')}
               </Button>
             )}
           </>
@@ -40,7 +41,7 @@ export function FilterBar({
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" className="shrink-0">
-                <SlidersHorizontal /> Filters
+                <SlidersHorizontal /> {t('filterBar.filters')}
                 {active > 0 && (
                   <span className="tabular rounded-full bg-primary px-1.5 text-xs text-primary-foreground">
                     {active}
@@ -48,15 +49,18 @@ export function FilterBar({
                 )}
               </Button>
             </DialogTrigger>
-            <DialogContent title="Filters" description="Narrow the list.">
+            <DialogContent
+              title={t('filterBar.filters')}
+              description={t('filterBar.narrowTheList')}
+            >
               <div className="flex flex-col gap-4">{children}</div>
               <div className="flex gap-2">
                 <Button variant="outline" className="flex-1" onClick={onClear}>
-                  Clear filters
+                  {t('filterBar.clearFilters')}
                 </Button>
                 <DialogClose asChild>
                   <Button variant="primary" className="flex-1">
-                    Show results
+                    {t('filterBar.showResults')}
                   </Button>
                 </DialogClose>
               </div>

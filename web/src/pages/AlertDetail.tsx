@@ -26,9 +26,14 @@ import { Button } from '../components/ui/button'
 import { Skeleton } from '../components/ui/skeleton'
 import { api, ApiError } from '../lib/api'
 import { dateTime } from '../lib/format'
+import { categoryLabel, strings, t } from '../lib/i18n'
 import type { AlertDetail as Detail } from '../lib/types'
 
-const STATUS = { new: 'New', acknowledged: 'Seen', dismissed: 'Dismissed' } as const
+const STATUS = {
+  new: strings.alertDetail.statusNew,
+  acknowledged: strings.alertDetail.statusSeen,
+  dismissed: strings.alertDetail.statusDismissed,
+} as const
 
 function reason(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback
@@ -49,30 +54,30 @@ export function AlertDetail() {
     onSuccess: (_d, status) => {
       toast.success(
         status === 'dismissed'
-          ? 'Alert dismissed.'
+          ? t('alertDetail.dismissedToast')
           : status === 'acknowledged'
-            ? 'Marked as seen.'
-            : 'Alert reopened.',
+            ? t('alertDetail.seenToast')
+            : t('alertDetail.reopenedToast'),
       )
       return refresh()
     },
-    onError: (e) => toast.error(reason(e, 'Could not update the alert. Try again.')),
+    onError: (e) => toast.error(reason(e, t('alertDetail.updateFailed'))),
   })
   const resend = useMutation({
     mutationFn: () => api(`/api/alerts/${id}/resend`, { method: 'POST' }),
     onSuccess: () => {
-      toast.success('Resending the alert to your WhatsApp.')
+      toast.success(t('alertDetail.resendingToast'))
       return refresh()
     },
-    onError: (e) => toast.error(reason(e, 'Could not resend the alert.')),
+    onError: (e) => toast.error(reason(e, t('alertDetail.resendFailed'))),
   })
 
   if (isError)
     return (
       <div className="flex flex-col gap-4">
-        <PageHeader title="Alert" />
+        <PageHeader title={t('alertDetail.heading')} />
         <p role="alert" className="rounded-md bg-danger-soft p-4 text-sm text-danger">
-          This alert no longer exists. It may have been removed by the retention window.
+          {t('alertDetail.gone')}
         </p>
       </div>
     )
@@ -92,11 +97,11 @@ export function AlertDetail() {
         to="/alerts"
         className="inline-flex min-h-10 w-fit items-center gap-1 text-sm font-medium text-primary"
       >
-        <ChevronLeft className="size-4 rtl:rotate-180" /> All alerts
+        <ChevronLeft className="size-4 rtl:rotate-180" /> {t('alertDetail.allAlerts')}
       </Link>
       <PageHeader
-        title={`Alert for ${a.kid_names.join(' and ')}`}
-        description={`${dateTime(a.sent_at)}${a.chat_name ? `, in ${a.chat_name}` : ''}${a.sender_name ? `, from ${a.sender_name}` : ''}`}
+        title={t('alertDetail.titleFor', strings.names.join(a.kid_names))}
+        description={`${dateTime(a.sent_at)}${a.chat_name ? t('alertDetail.inChat', a.chat_name) : ''}${a.sender_name ? t('alertDetail.fromSender', a.sender_name) : ''}`}
       />
 
       <div className="flex flex-wrap items-center gap-3">
@@ -115,30 +120,26 @@ export function AlertDetail() {
         <div className="flex items-start gap-3 rounded-lg border bg-surface p-5">
           <ShieldOff className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
           <div className="flex flex-col gap-2">
-            <p className="font-medium">Withheld on purpose, so there is nothing to show</p>
+            <p className="font-medium">{t('alertDetail.withheldTitle')}</p>
             <p>
-              Iris detected {a.categories.join(', ')} ({a.max_score.toFixed(2)}) in a message that
-              may involve a minor in a sexual context. It never stored the content, because keeping
-              it could be illegal, so it cannot be shown here.
+              {t(
+                'alertDetail.withheldBody',
+                a.categories.map(categoryLabel).join(', '),
+                a.max_score.toFixed(2),
+              )}
             </p>
-            <p className="text-sm text-muted-foreground">
-              Only the details above are kept. To see what was sent, open the chat directly in
-              WhatsApp.
-            </p>
+            <p className="text-sm text-muted-foreground">{t('alertDetail.withheldOnlyDetails')}</p>
           </div>
         </div>
       ) : a.quote === null ? (
         <div className="flex items-start gap-3 rounded-lg border bg-surface p-5">
           <ShieldOff className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
           <div className="flex flex-col gap-2">
-            <p className="font-medium">Kept out of this alert</p>
-            <p>
-              The text may involve a minor, so it was not copied into the alert or sent to your
-              WhatsApp. It is kept so you can read it and decide.
-            </p>
+            <p className="font-medium">{t('alertDetail.keptOutTitle')}</p>
+            <p>{t('alertDetail.keptOutBody')}</p>
             <Button asChild variant="outline" className="w-fit">
               <Link to={`/messages/${a.message_id}`}>
-                <MessagesSquare /> Read it in the conversation
+                <MessagesSquare /> {t('alertDetail.readInConversation')}
               </Link>
             </Button>
           </div>
@@ -146,7 +147,7 @@ export function AlertDetail() {
       ) : (
         <>
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold">The message</h2>
+            <h2 className="text-lg font-semibold">{t('alertDetail.theMessage')}</h2>
             <RevealButton revealed={revealed} onToggle={toggle} />
           </div>
           <blockquote
@@ -168,14 +169,14 @@ export function AlertDetail() {
       {a.media && !a.redacted && (
         <section aria-labelledby="kept" className="flex flex-col gap-3">
           <h2 id="kept" className="text-lg font-semibold">
-            Kept media
+            {t('alertDetail.keptMedia')}
           </h2>
           <MediaPlayer media={a.media} revealed={revealed} />
           <Link
             to={`/media/${a.media.id}`}
             className="w-fit text-sm font-medium text-primary hover:underline"
           >
-            Open on its own page
+            {t('alertDetail.openOwnPage')}
           </Link>
         </section>
       )}
@@ -187,7 +188,7 @@ export function AlertDetail() {
             onClick={() => setStatus.mutate('acknowledged')}
             disabled={setStatus.isPending}
           >
-            <Check /> Mark as seen
+            <Check /> {t('alertDetail.markSeen')}
           </Button>
         ) : (
           <Button
@@ -195,7 +196,7 @@ export function AlertDetail() {
             onClick={() => setStatus.mutate('new')}
             disabled={setStatus.isPending}
           >
-            <RotateCcw /> Reopen
+            <RotateCcw /> {t('alertDetail.reopen')}
           </Button>
         )}
         {a.status !== 'dismissed' && (
@@ -204,12 +205,12 @@ export function AlertDetail() {
             onClick={() => setStatus.mutate('dismissed')}
             disabled={setStatus.isPending}
           >
-            <X /> Dismiss
+            <X /> {t('alertDetail.dismiss')}
           </Button>
         )}
         <Button asChild variant="outline">
           <Link to={`/messages/${a.message_id}`}>
-            <MessagesSquare /> See the conversation
+            <MessagesSquare /> {t('alertDetail.seeConversation')}
           </Link>
         </Button>
       </div>
@@ -219,7 +220,7 @@ export function AlertDetail() {
         className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-surface p-4"
       >
         <h2 id="delivery" className="sr-only">
-          Delivery
+          {t('alertDetail.delivery')}
         </h2>
         <span className="flex items-center gap-2">
           {undelivered ? (
@@ -229,10 +230,10 @@ export function AlertDetail() {
           )}
           <span className="font-medium">
             {{
-              sent: 'Delivered to your WhatsApp',
-              failed: 'Not delivered',
-              suppressed: 'Held back by the cooldown',
-              pending: 'Sending',
+              sent: t('alertDetail.deliveredToWhatsapp'),
+              failed: t('alertDetail.notDelivered'),
+              suppressed: t('alertDetail.heldByCooldown'),
+              pending: t('alertDetail.sending'),
             }[a.delivery_status] ?? a.delivery_status}
           </span>
           {a.notified_at && (
@@ -247,13 +248,13 @@ export function AlertDetail() {
           onClick={() => resend.mutate()}
           disabled={resend.isPending}
         >
-          <Send /> Send again
+          <Send /> {t('alertDetail.sendAgain')}
         </Button>
       </section>
 
       <section aria-labelledby="how" className="flex flex-col gap-3">
         <h2 id="how" className="text-lg font-semibold">
-          How Iris decided
+          {t('alertDetail.howDecided')}
         </h2>
         <ClassificationCards items={a.classifications} />
       </section>

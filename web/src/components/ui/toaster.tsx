@@ -1,3 +1,4 @@
+import { dir } from '../../lib/language'
 import { Toaster as Sonner } from 'sonner'
 import { useIsDark } from '../../lib/theme'
 import { useIsDesktop } from '../../lib/useMediaQuery'
@@ -8,6 +9,7 @@ export function Toaster() {
   const dark = useIsDark()
   return (
     <Sonner
+      dir={dir}
       position={desktop ? 'bottom-right' : 'top-center'}
       theme={dark ? 'dark' : 'light'}
       toastOptions={{

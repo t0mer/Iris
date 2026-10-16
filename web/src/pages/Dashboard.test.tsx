@@ -42,13 +42,13 @@ test('shows the numbers and names everything that needs attention', async () => 
   renderPage()
   expect(await screen.findByText('12')).toBeInTheDocument()
   expect(screen.getByText('80')).toBeInTheDocument()
-  const list = within(await screen.findByRole('region', { name: 'Needs attention' }))
-  expect(list.getByText(/Alert delivery is not configured/)).toBeInTheDocument()
-  expect(list.getByText('4 jobs failed')).toBeInTheDocument()
-  expect(list.getByText(/never received a webhook/)).toBeInTheDocument()
-  expect(list.getByText(/3 new alerts to read/)).toBeInTheDocument()
-  expect(list.getByText(/2 messages Iris could not decide/)).toBeInTheDocument()
-  expect(screen.getByText('3 alerts and 2 to review need you')).toBeInTheDocument()
+  const list = within(await screen.findByRole('region', { name: 'דורש תשומת לב' }))
+  expect(list.getByText(/משלוח ההתראות אינו מוגדר/)).toBeInTheDocument()
+  expect(list.getByText('4 משימות נכשלו')).toBeInTheDocument()
+  expect(list.getByText(/מעולם לא התקבלו מהם הודעות/)).toBeInTheDocument()
+  expect(list.getByText(/3 התראות חדשות לקריאה/)).toBeInTheDocument()
+  expect(list.getByText(/2 הודעות שאיריס לא הצליחה לסווג/)).toBeInTheDocument()
+  expect(screen.getByText('3 התראות ו־2 לבדיקה דורשות תשומת לב')).toBeInTheDocument()
 })
 
 test('says all quiet and lists nothing when everything is healthy', async () => {
@@ -60,9 +60,9 @@ test('says all quiet and lists nothing when everything is healthy', async () => 
     alerts_by_status: {},
     alerts_by_delivery: {},
   })
-  expect(await screen.findByText('All quiet')).toBeInTheDocument()
-  expect(screen.queryByRole('region', { name: 'Needs attention' })).not.toBeInTheDocument()
-  expect(screen.getByText('No alerts yet')).toBeInTheDocument()
+  expect(await screen.findByText('הכול שקט')).toBeInTheDocument()
+  expect(screen.queryByRole('region', { name: 'דורש תשומת לב' })).not.toBeInTheDocument()
+  expect(screen.getByText('אין עדיין התראות')).toBeInTheDocument()
 })
 
 test('shows an error that says what to do when the stats cannot be loaded', async () => {
@@ -79,27 +79,27 @@ test('shows an error that says what to do when the stats cannot be loaded', asyn
       </MemoryRouter>
     </QueryClientProvider>,
   )
-  expect(await screen.findByRole('alert')).toHaveTextContent(/Could not load the dashboard/)
+  expect(await screen.findByRole('alert')).toHaveTextContent(/לא ניתן היה לטעון את לוח הבקרה/)
 })
 
 test('shows how much media is kept only when keeping is on', async () => {
   renderPage()
-  await screen.findByText('Messages today')
-  expect(screen.queryByText('Media kept')).not.toBeInTheDocument()
+  await screen.findByText('הודעות היום')
+  expect(screen.queryByText('מדיה שנשמרה')).not.toBeInTheDocument()
 })
 
 test('shows the number and size of kept media when it is on', async () => {
   cleanup()
   renderPage({ media_policy: 'harmful', media_files: 7, media_bytes: 3 * 1024 * 1024 })
-  const label = await screen.findByText('Media kept')
-  expect(label.closest('div')).toHaveTextContent('3.0 MB')
+  const label = await screen.findByText('מדיה שנשמרה')
+  expect(label.closest('div')).toHaveTextContent('3.0 מ״ב')
   expect(label.closest('div')).toHaveTextContent('7')
 })
 
 test('still shows kept media after keeping was turned off', async () => {
   cleanup()
   renderPage({ media_policy: 'off', media_files: 2, media_bytes: 2048 })
-  expect(await screen.findByText('Media kept')).toBeInTheDocument()
+  expect(await screen.findByText('מדיה שנשמרה')).toBeInTheDocument()
 })
 
 test('recent alerts show no quote until the eye is pressed', async () => {
@@ -137,9 +137,9 @@ test('recent alerts show no quote until the eye is pressed', async () => {
       </MemoryRouter>
     </QueryClientProvider>,
   )
-  await screen.findByText('Recent alerts')
+  await screen.findByText('התראות אחרונות')
   expect(screen.queryByText('a private quote')).not.toBeInTheDocument()
-  await userEvent.click(screen.getByRole('button', { name: 'Show content' }))
+  await userEvent.click(screen.getByRole('button', { name: 'הצגת תוכן' }))
   expect(await screen.findByText('a private quote')).toBeInTheDocument()
 })
 
@@ -152,13 +152,13 @@ test('warns when no children, parents or alert sender are configured', async () 
     alerts_by_status: {},
     review_queue: 0,
   })
-  expect(await screen.findByText(/No child phone is configured/)).toBeInTheDocument()
-  expect(screen.getByText(/No parent recipients are configured/)).toBeInTheDocument()
-  expect(screen.getByText(/No alert phone is set/)).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: 'Children: 0' })).toHaveAttribute('href', '/instances')
-  expect(screen.getByRole('link', { name: 'Parents: 0' })).toHaveAttribute(
+  expect(await screen.findByText(/לא הוגדר טלפון של ילד/)).toBeInTheDocument()
+  expect(screen.getByText(/לא הוגדרו נמענים/)).toBeInTheDocument()
+  expect(screen.getByText(/לא הוגדר טלפון לשליחת/)).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'ילדים: 0' })).toHaveAttribute('href', '/instances')
+  expect(screen.getByRole('link', { name: 'הורים: 0' })).toHaveAttribute(
     'href',
     '/settings?tab=Alerts',
   )
-  expect(screen.getByRole('link', { name: 'Alert phones: 0' })).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'טלפונים להתראות: 0' })).toBeInTheDocument()
 })

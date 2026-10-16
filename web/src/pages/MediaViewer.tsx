@@ -11,9 +11,14 @@ import { Button } from '../components/ui/button'
 import { Skeleton } from '../components/ui/skeleton'
 import { api, ApiError } from '../lib/api'
 import { fileSize } from '../lib/format'
+import { strings, t } from '../lib/i18n'
 import type { MediaInfo } from '../lib/types'
 
-const LABEL = { image: 'Photo', audio: 'Voice note', video: 'Video' } as const
+const LABEL = {
+  image: strings.media.photo,
+  audio: strings.media.voiceNote,
+  video: strings.media.video,
+} as const
 
 /** The page the WhatsApp alert links to: the kept file, shown after sign-in. */
 export function MediaViewer() {
@@ -32,10 +37,9 @@ export function MediaViewer() {
   if (gone)
     return (
       <div className="flex max-w-3xl flex-col gap-6">
-        <PageHeader title="Kept media" />
-        <EmptyState icon={FileX} title="This file is no longer kept">
-          It was deleted when its keep time ended, or it was withheld. The message itself may still
-          be in Iris.
+        <PageHeader title={t('mediaViewer.keptMedia')} />
+        <EmptyState icon={FileX} title={t('mediaViewer.noLongerKept')}>
+          {t('mediaViewer.noLongerKeptBody')}
         </EmptyState>
       </div>
     )
@@ -45,13 +49,15 @@ export function MediaViewer() {
         to="/alerts"
         className="inline-flex min-h-10 w-fit items-center gap-1 text-sm font-medium text-primary"
       >
-        <ChevronLeft className="size-4 rtl:rotate-180" /> All alerts
+        <ChevronLeft className="size-4 rtl:rotate-180" /> {t('mediaViewer.allAlerts')}
       </Link>
       <PageHeader
-        title={m ? LABEL[m.kind] : 'Kept media'}
+        title={m ? LABEL[m.kind] : t('mediaViewer.keptMedia')}
         description={m ? `${m.content_type}, ${fileSize(m.size_bytes)}` : undefined}
       />
-      {info.isError && <QueryError what="the media" onRetry={() => void info.refetch()} />}
+      {info.isError && (
+        <QueryError what={t('mediaViewer.couldNotLoad')} onRetry={() => void info.refetch()} />
+      )}
       {!m && !info.isError && <Skeleton className="h-64" />}
       {m && (
         <>
@@ -67,13 +73,13 @@ export function MediaViewer() {
             {m.alert_id !== null && (
               <Button asChild variant="outline">
                 <Link to={`/alerts/${m.alert_id}`}>
-                  <BellRing /> See the alert
+                  <BellRing /> {t('mediaViewer.seeAlert')}
                 </Link>
               </Button>
             )}
             <Button asChild variant="ghost">
               <Link to={`/messages/${m.message_id}`}>
-                <MessagesSquare /> See the conversation
+                <MessagesSquare /> {t('mediaViewer.seeConversation')}
               </Link>
             </Button>
           </div>

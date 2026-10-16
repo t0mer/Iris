@@ -15,5 +15,5 @@ test('shows login when unauthenticated', async () => {
       </MemoryRouter>
     </QueryClientProvider>,
   )
-  expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: 'כניסה' })).toBeInTheDocument()
 })

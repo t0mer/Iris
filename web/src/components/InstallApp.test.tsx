@@ -1,13 +1,14 @@
+import { he } from '../lib/he'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { InstallApp } from './InstallApp'
 
 test('offers installation guidance when a native prompt is unavailable', async () => {
   render(<InstallApp />)
-  await userEvent.click(screen.getByRole('button', { name: 'Install app' }))
-  expect(screen.getByRole('dialog', { name: 'Install Iris' })).toBeInTheDocument()
-  expect(screen.getByText(/In Chrome on Android/)).toBeInTheDocument()
-  expect(screen.getByText(/background notifications/)).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: he('Install app') }))
+  expect(screen.getByRole('dialog', { name: he('Install Iris') })).toBeInTheDocument()
+  expect(screen.getByText(/ב־Chrome ב־Android/)).toBeInTheDocument()
+  expect(screen.getByText(/התראות ברקע/)).toBeInTheDocument()
 })
 
 test('uses the browser installation prompt only after a click', async () => {
@@ -22,7 +23,7 @@ test('uses the browser installation prompt only after a click', async () => {
   })
   expect(event.defaultPrevented).toBe(true)
   expect(prompt).not.toHaveBeenCalled()
-  await userEvent.click(screen.getByRole('button', { name: 'Install app' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Install Iris' }))
+  await userEvent.click(screen.getByRole('button', { name: he('Install app') }))
+  fireEvent.click(screen.getByRole('button', { name: he('Install Iris') }))
   expect(prompt).toHaveBeenCalledOnce()
 })

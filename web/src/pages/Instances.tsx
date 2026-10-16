@@ -1,3 +1,4 @@
+import { he } from '../lib/he'
 import { useQuery } from '@tanstack/react-query'
 import { Smartphone } from 'lucide-react'
 import { EmptyState } from '../components/EmptyState'
@@ -23,12 +24,14 @@ export function Instances() {
   return (
     <div className="flex max-w-3xl flex-col gap-5">
       <PageHeader
-        title="Phones"
-        description="Manage monitored children. Parent recipients and sender connections are in Settings → Alerts."
+        title={he('Phones')}
+        description={he(
+          'Manage monitored children. Parent recipients and sender connections are in Settings → Alerts.',
+        )}
       />
       {isLoading && <Skeleton className="h-48" />}
-      {isError && <QueryError what="your phones" onRetry={() => void refetch()} />}
-      <h2 className="text-lg font-semibold">Children</h2>
+      {isError && <QueryError what={he('your phones')} onRetry={() => void refetch()} />}
+      <h2 className="text-lg font-semibold">{he('Children')}</h2>
       <AddPhone defaultRole="child" />
       <ul className="flex flex-col gap-4">
         {children?.map((phone) => (
@@ -37,8 +40,10 @@ export function Instances() {
       </ul>
       {children?.length === 0 && (
         <div className="rounded-lg border bg-surface">
-          <EmptyState icon={Smartphone} title="No phones yet">
-            Add the first child's number to start watching. You will need an OpenWA session for it.
+          <EmptyState icon={Smartphone} title={he('No phones yet')}>
+            {he(
+              "Add the first child's number to start watching. You will need an OpenWA session for it.",
+            )}
           </EmptyState>
         </div>
       )}

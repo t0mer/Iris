@@ -8,6 +8,7 @@ import { Badge } from '../components/ui/badge'
 import { Skeleton } from '../components/ui/skeleton'
 import { api } from '../lib/api'
 import { relativeTime } from '../lib/format'
+import { strings, t } from '../lib/i18n'
 import type { Chat } from '../lib/types'
 import { QueryError } from '../components/QueryError'
 
@@ -19,12 +20,9 @@ export function Chats() {
   })
   return (
     <div className="flex max-w-4xl flex-col gap-5">
-      <PageHeader
-        title="Chats"
-        description="Every conversation and group Iris has seen, and which phones are in them."
-      />
+      <PageHeader title={t('chats.title')} description={t('chats.description')} />
       {isLoading && <Skeleton className="h-48" />}
-      {isError && <QueryError what="your chats" onRetry={() => void refetch()} />}
+      {isError && <QueryError what={t('chats.couldNotLoad')} onRetry={() => void refetch()} />}
       <ul className="divide-y overflow-hidden rounded-lg border bg-surface">
         {data?.map((c) => (
           <li key={c.id}>
@@ -34,25 +32,25 @@ export function Chats() {
             >
               <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary-soft text-primary">
                 {c.is_group ? <Users className="size-5" /> : <User className="size-5" />}
-                <span className="sr-only">{c.is_group ? 'Group' : 'Direct chat'}</span>
+                <span className="sr-only">
+                  {c.is_group ? t('chats.group') : t('chats.directChat')}
+                </span>
               </span>
               <span className="flex min-w-0 flex-1 flex-col gap-1">
                 <span className="truncate font-medium" dir="auto">
-                  {c.name ?? (c.is_group ? 'Unnamed group' : 'Direct chat')}
+                  {c.name ?? (c.is_group ? t('chats.unnamedGroup') : t('chats.directChat'))}
                 </span>
                 <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
                   <KidStack names={c.kids.map((k) => k.kid_name)} />
-                  <span>{c.kids.map((k) => k.kid_name).join(' and ') || 'No phone linked'}</span>
+                  <span>
+                    {strings.names.join(c.kids.map((k) => k.kid_name)) || t('chats.noPhoneLinked')}
+                  </span>
                 </span>
               </span>
               <span className="flex shrink-0 flex-col items-end gap-1 text-sm">
-                <span className="tabular">
-                  {c.message_count} {c.message_count === 1 ? 'message' : 'messages'}
-                </span>
+                <span className="tabular">{t('chats.messagesCount', c.message_count)}</span>
                 {c.alert_count > 0 && (
-                  <Badge tone="danger">
-                    {c.alert_count} {c.alert_count === 1 ? 'alert' : 'alerts'}
-                  </Badge>
+                  <Badge tone="danger">{t('chats.alertsCount', c.alert_count)}</Badge>
                 )}
                 {c.last_message_at && (
                   <span className="text-xs text-muted-foreground">
@@ -65,8 +63,8 @@ export function Chats() {
         ))}
         {data?.length === 0 && (
           <li>
-            <EmptyState icon={MessagesSquare} title="No chats yet">
-              Chats show up here once a connected phone receives or sends a message.
+            <EmptyState icon={MessagesSquare} title={t('chats.noneYet')}>
+              {t('chats.noneYetBody')}
             </EmptyState>
           </li>
         )}

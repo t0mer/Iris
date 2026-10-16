@@ -62,43 +62,31 @@ function renderLayout(path = '/alerts') {
 test('desktop shows the sidebar with every destination and live badges', async () => {
   setViewport(true)
   renderLayout()
-  const nav = await screen.findByRole('navigation', { name: 'Main' })
-  for (const name of [
-    'Home',
-    'Alerts',
-    'Review',
-    'Messages',
-    'Chats',
-    'Phones',
-    'Jobs',
-    'Settings',
-  ])
+  const nav = await screen.findByRole('navigation', { name: 'ניווט ראשי' })
+  for (const name of ['בית', 'התראות', 'בדיקה', 'הודעות', 'צ׳אטים', 'טלפונים', 'משימות', 'הגדרות'])
     expect(within(nav).getByRole('link', { name: new RegExp(name) })).toBeInTheDocument()
-  expect(await within(nav).findByText('3 waiting')).toBeInTheDocument() // new alerts
-  expect(within(nav).getByText('2 waiting')).toBeInTheDocument() // review queue
-  expect(within(nav).getByRole('link', { name: /Alerts/ })).toHaveAttribute('aria-current', 'page')
+  expect(await within(nav).findByText('3 ממתינות')).toBeInTheDocument() // new alerts
+  expect(within(nav).getByText('2 ממתינות')).toBeInTheDocument() // review queue
+  expect(within(nav).getByRole('link', { name: /התראות/ })).toHaveAttribute('aria-current', 'page')
 })
 
 test('phone shows a tab bar with four destinations and More for the rest', async () => {
   setViewport(false)
   renderLayout('/')
-  const nav = await screen.findByRole('navigation', { name: 'Main' })
+  const nav = await screen.findByRole('navigation', { name: 'ניווט ראשי' })
   expect(within(nav).getAllByRole('link')).toHaveLength(4)
-  expect(within(nav).queryByRole('link', { name: 'Settings' })).not.toBeInTheDocument()
-  await userEvent.click(within(nav).getByRole('button', { name: /More/ }))
-  const more = await screen.findByRole('navigation', { name: 'More' })
-  for (const name of ['Chats', 'Phones', 'Jobs', 'Settings'])
+  expect(within(nav).queryByRole('link', { name: 'הגדרות' })).not.toBeInTheDocument()
+  await userEvent.click(within(nav).getByRole('button', { name: /עוד/ }))
+  const more = await screen.findByRole('navigation', { name: 'עוד' })
+  for (const name of ['צ׳אטים', 'טלפונים', 'משימות', 'הגדרות'])
     expect(within(more).getByRole('link', { name: new RegExp(name) })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: /Sign out/ })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /התנתקות/ })).toBeInTheDocument()
 })
 
 test('the page can be reached with the skip link and has a main landmark', async () => {
   setViewport(true)
   renderLayout()
-  expect(await screen.findByRole('link', { name: 'Skip to content' })).toHaveAttribute(
-    'href',
-    '#main',
-  )
+  expect(await screen.findByRole('link', { name: 'מעבר לתוכן' })).toHaveAttribute('href', '#main')
   expect(screen.getByRole('main')).toHaveTextContent('page body')
 })
 
@@ -108,8 +96,8 @@ test('moves focus to the page after navigating, but not on the first load', asyn
   const main = await screen.findByRole('main')
   expect(main).not.toHaveFocus() // the first load leaves focus where the browser put it
   await userEvent.click(
-    within(await screen.findByRole('navigation', { name: 'Main' })).getByRole('link', {
-      name: /Messages/,
+    within(await screen.findByRole('navigation', { name: 'ניווט ראשי' })).getByRole('link', {
+      name: /הודעות/,
     }),
   )
   expect(main).toHaveFocus()
@@ -133,17 +121,17 @@ test('a live alert shows a toast and counts in the tab title until the tab is se
   )
   document.title = 'Iris'
   renderLayout()
-  await screen.findByRole('navigation', { name: 'Main' })
+  await screen.findByRole('navigation', { name: 'ניווט ראשי' })
   const s = sources[sources.length - 1]!
   act(() => s.listeners.hello![0]!({ data: '{}' }))
-  expect(await screen.findByText('Live')).toBeInTheDocument()
+  expect(await screen.findByText('בזמן אמת')).toBeInTheDocument()
   act(() => s.listeners.alert![0]!({ data: '{"id": 5}' }))
-  expect(await screen.findByText('A new alert needs you')).toBeInTheDocument() // visible tab: toast, no count
+  expect(await screen.findByText('יש התראה חדשה')).toBeInTheDocument() // visible tab: toast, no count
   expect(document.title).toBe('Iris') // looking at the tab: no count
   vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
   act(() => s.listeners.alert![0]!({ data: '{"id": 5}' }))
-  expect(await screen.findByText('A new alert needs you')).toBeInTheDocument()
-  expect(screen.getAllByRole('button', { name: 'Open' })).toHaveLength(2)
+  expect(await screen.findByText('יש התראה חדשה')).toBeInTheDocument()
+  expect(screen.getAllByRole('button', { name: 'פתיחה' })).toHaveLength(2)
   expect(document.title).toBe('(1) Iris')
   vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
   act(() => {

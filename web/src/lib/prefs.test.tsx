@@ -36,15 +36,15 @@ test('with the preference on, content starts shown and the eye still hides it', 
   setShowContentByDefault(true)
   render(<Item />)
   expect(screen.getByText('text of 1')).toBeInTheDocument()
-  await userEvent.click(screen.getByRole('button', { name: 'Hide content' }))
+  await userEvent.click(screen.getByRole('button', { name: 'הסתרת תוכן' }))
   expect(screen.queryByText('text of 1')).not.toBeInTheDocument()
-  await userEvent.click(screen.getByRole('button', { name: 'Show content' }))
+  await userEvent.click(screen.getByRole('button', { name: 'הצגת תוכן' }))
   expect(screen.getByText('text of 1')).toBeInTheDocument()
 })
 
 test('showing one item does not change the preference', async () => {
   render(<Item />)
-  await userEvent.click(screen.getByRole('button', { name: 'Show content' }))
+  await userEvent.click(screen.getByRole('button', { name: 'הצגת תוכן' }))
   expect(getShowContentByDefault()).toBe(false)
 })
 
@@ -73,7 +73,7 @@ test('turning it off again hides everything that has not been toggled', () => {
 
 test('an item the owner toggled keeps its choice when the preference changes', async () => {
   render(<Item />)
-  await userEvent.click(screen.getByRole('button', { name: 'Show content' }))
+  await userEvent.click(screen.getByRole('button', { name: 'הצגת תוכן' }))
   act(() => setShowContentByDefault(false))
   expect(screen.getByText('text of 1')).toBeInTheDocument()
 })

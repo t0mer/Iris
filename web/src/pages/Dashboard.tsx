@@ -1,3 +1,5 @@
+import { t } from '../lib/i18n'
+import { he } from '../lib/he'
 import { useQuery } from '@tanstack/react-query'
 import {
   Activity,
@@ -39,100 +41,110 @@ function attentionItems(s: Stats): Item[] {
     items.push({
       icon: Smartphone,
       to: '/instances',
-      action: 'Add a child',
+      action: he('Add a child'),
       tone: 'warning',
-      text: 'No child phone is configured. Iris cannot monitor children yet.',
+      text: he('No child phone is configured. Iris cannot monitor children yet.'),
     })
   if (s.parent_recipients === 0)
     items.push({
       icon: Settings,
       to: '/settings?tab=Alerts',
-      action: 'Add parents',
+      action: he('Add parents'),
       tone: 'warning',
-      text: 'No parent recipients are configured. Add a parent phone number to receive alerts.',
+      text: he('No parent recipients are configured. Add a parent phone number to receive alerts.'),
     })
   if (s.alert_sender_configured === false)
     items.push({
       icon: Smartphone,
       to: '/settings?tab=Alerts',
-      action: 'Set alert phone',
+      action: he('Set alert phone'),
       tone: 'warning',
-      text: 'No alert phone is set. Connect a sender phone and select it to send alerts to parents.',
+      text: he(
+        'No alert phone is set. Connect a sender phone and select it to send alerts to parents.',
+      ),
     })
   const alerts = s.alerts_by_status['new'] ?? 0
-  const plural = (n: number, one: string, many: string) => (n === 1 ? one : many)
   if (alerts > 0)
     items.push({
       icon: BellRing,
       to: '/alerts?status=new',
-      action: 'Open alerts',
+      action: he('Open alerts'),
       tone: 'danger',
-      text: `${alerts} new ${plural(alerts, 'alert', 'alerts')} to read`,
+      text: t('dashboard.newAlertsToRead', alerts),
     })
   if (s.review_queue > 0)
     items.push({
       icon: ListChecks,
       to: '/review',
-      action: 'Review',
+      action: he('Review'),
       tone: 'warning',
-      text: `${s.review_queue} ${plural(s.review_queue, 'message', 'messages')} Iris could not decide`,
+      text: he('{n} messages Iris could not classify', { n: s.review_queue }),
     })
   if (!s.delivery_configured)
     items.push({
       icon: Settings,
       to: '/settings?tab=Alerts',
-      action: 'Set up delivery',
+      action: he('Set up delivery'),
       tone: 'warning',
-      text: 'Alert delivery is not configured, so alerts are recorded but not sent.',
+      text: he('Alert delivery is not configured, so alerts are recorded but not sent.'),
     })
   const undelivered = s.alerts_by_delivery['failed'] ?? 0
   if ((s.unavailable_instances ?? 0) > 0)
     items.push({
       icon: ServerCrash,
       to: '/instances',
-      action: 'Check sessions',
+      action: he('Check sessions'),
       tone: 'danger',
-      text: 'A monitored phone or the alert sender is disconnected or unreachable. Monitoring or delivery may have stopped.',
+      text: he(
+        'A monitored phone or the alert sender is disconnected or unreachable. Monitoring or delivery may have stopped.',
+      ),
     })
   if (s.sender_is_recipient)
     items.push({
       icon: Smartphone,
       to: '/settings?tab=Alerts',
-      action: 'Check recipients',
+      action: he('Check recipients'),
       tone: 'warning',
-      text: 'The sender is also a parent recipient. Messages to yourself may not notify you; use a separate sender phone for reliable parent notifications.',
+      text: he(
+        'The sender is also a parent recipient. Messages to yourself may not notify you; use a separate sender phone for reliable parent notifications.',
+      ),
     })
   if ((s.alerts_by_delivery['partial'] ?? 0) > 0)
     items.push({
       icon: BellRing,
       to: '/alerts',
-      action: 'Check delivery',
+      action: he('Check delivery'),
       tone: 'warning',
-      text: 'Some alerts reached only part of the parent recipient list.',
+      text: he('Some alerts reached only part of the parent recipient list.'),
     })
   if (s.delivery_configured && undelivered > 0)
     items.push({
       icon: ServerCrash,
       to: '/alerts',
-      action: 'See alerts',
+      action: he('See alerts'),
       tone: 'danger',
-      text: `${undelivered} ${plural(undelivered, 'alert was', 'alerts were')} not delivered to your WhatsApp`,
+      text: he('{n} alerts not delivered to your WhatsApp', { n: undelivered }),
     })
   if (s.failed_jobs > 0)
     items.push({
       icon: Activity,
       to: '/jobs',
-      action: 'See why',
+      action: he('See why'),
       tone: 'warning',
-      text: `${s.failed_jobs} ${plural(s.failed_jobs, 'job', 'jobs')} failed`,
+      text: t('dashboard.jobsFailed', s.failed_jobs),
     })
   if (s.silent_instances > 0)
     items.push({
       icon: Smartphone,
       to: '/instances',
-      action: 'Check setup',
+      action: he('Check setup'),
       tone: 'warning',
-      text: `${s.silent_instances} ${plural(s.silent_instances, 'phone has', 'phones have')} ${s.monitoring_window_minutes ? 'no webhook within the configured monitoring window' : 'never received a webhook'}`,
+      text: he(
+        s.monitoring_window_minutes
+          ? '{n} phones with no messages in the configured window'
+          : '{n} phones that have never received messages',
+        { n: s.silent_instances },
+      ),
     })
   return items
 }
@@ -142,25 +154,27 @@ function headline(s: Stats, items: Item[]) {
   const review = s.review_queue
   if (alerts + review > 0) {
     const parts = [
-      alerts > 0 && `${alerts} ${alerts === 1 ? 'alert' : 'alerts'}`,
-      review > 0 && `${review} to review`,
+      alerts > 0 && t('dashboard.alertsCount', alerts),
+      review > 0 && t('dashboard.toReview', review),
     ].filter(Boolean)
     return {
-      title: `${parts.join(' and ')} ${alerts + review === 1 ? 'needs' : 'need'} you`,
-      sub: 'Start with the newest alert.',
+      title: he('{parts} need your attention', { parts: parts.join(he(' and ')) }),
+      sub: he('Start with the newest alert.'),
     }
   }
   if (items.length > 0)
     return {
-      title: 'Needs attention',
-      sub: 'Monitoring or alert delivery needs setting up or fixing, below.',
+      title: he('Needs attention'),
+      sub: he('Monitoring or alert delivery needs setting up or fixing, below.'),
     }
   return {
-    title: 'All quiet',
+    title: he('All quiet'),
     sub:
       s.messages_today > 0
-        ? `Iris checked ${s.messages_today} ${s.messages_today === 1 ? 'message' : 'messages'} today and found nothing to worry about.`
-        : 'Iris is watching. Nothing has come in today yet.',
+        ? he('Iris checked {n} messages today and did not flag harmful content.', {
+            n: s.messages_today,
+          })
+        : he('Iris is watching. Nothing has come in today yet.'),
   }
 }
 
@@ -197,7 +211,7 @@ function Stat({
 
 function Loading() {
   return (
-    <div className="flex flex-col gap-6" aria-busy="true" aria-label="Loading the dashboard">
+    <div className="flex flex-col gap-6" aria-busy="true" aria-label={he('Loading the dashboard')}>
       <Skeleton className="h-52 rounded-lg" />
       <Skeleton className="h-64 rounded-lg" />
       <Skeleton className="h-40 rounded-lg" />
@@ -226,9 +240,9 @@ export function Dashboard() {
   if (stats.isError)
     return (
       <div className="flex flex-col gap-4">
-        <PageHeader title="Home" />
+        <PageHeader title={he('Home')} />
         <p role="alert" className="rounded-md bg-danger-soft p-4 text-sm text-danger">
-          Could not load the dashboard. Check that Iris is running, then reload the page.
+          {he('Could not load the dashboard. Check that Iris is running, then reload the page.')}
         </p>
       </div>
     )
@@ -241,10 +255,10 @@ export function Dashboard() {
 
   return (
     <div className="flex flex-col gap-8">
-      <PageHeader title="Home" />
+      <PageHeader title={he('Home')} />
 
       <section
-        aria-label="Status"
+        aria-label={he('Status')}
         className="flex flex-col items-center gap-6 rounded-xl border bg-surface p-6 sm:flex-row sm:p-8"
       >
         <IrisRing alerts={s.alerts_by_status['new'] ?? 0} review={s.review_queue} />
@@ -254,25 +268,25 @@ export function Dashboard() {
             <p className="max-w-prose text-muted-foreground">{sub}</p>
           </div>
           <dl className="grid grid-cols-2 divide-x divide-y rounded-md border sm:grid-cols-3 rtl:divide-x-reverse">
-            <Stat label="Messages today" value={s.messages_today} to="/messages" />
-            <Stat label="Last 7 days" value={s.messages_7d} to="/messages" />
-            <Stat label="In the queue" value={s.queue_depth} />
-            <Stat label="Children" value={s.children ?? s.instances} to="/instances" />
+            <Stat label={he('Messages today')} value={s.messages_today} to="/messages" />
+            <Stat label={he('Last 7 days')} value={s.messages_7d} to="/messages" />
+            <Stat label={he('In the queue')} value={s.queue_depth} />
+            <Stat label={he('Children')} value={s.children ?? s.instances} to="/instances" />
             <Stat
-              label="Parents"
+              label={he('Parents')}
               value={s.parent_recipients ?? 0}
               to="/settings?tab=Alerts"
-              note="Alert recipients"
+              note={he('Alert recipients')}
             />
             <Stat
-              label="Alert phones"
+              label={he('Alert phones')}
               value={s.alert_phones ?? 0}
               to="/settings?tab=Alerts"
-              note="Sender connections"
+              note={he('Sender connections')}
             />
             {((s.media_policy && s.media_policy !== 'off') || (s.media_files ?? 0) > 0) && (
               <Stat
-                label="Media kept"
+                label={he('Media kept')}
                 value={s.media_files ?? 0}
                 note={fileSize(s.media_bytes ?? 0)}
               />
@@ -284,7 +298,7 @@ export function Dashboard() {
       {items.length > 0 && (
         <section aria-labelledby="attention" className="flex flex-col gap-3">
           <h2 id="attention" className="text-lg font-semibold">
-            Needs attention
+            {he('Needs attention')}
           </h2>
           <ul className="divide-y rounded-lg border bg-surface">
             {items.map((it) => (
@@ -312,7 +326,7 @@ export function Dashboard() {
         className="flex flex-col gap-3 rounded-lg border bg-surface p-4 sm:p-5"
       >
         <h2 id="activity" className="text-lg font-semibold">
-          Activity, last 14 days
+          {he('Activity, last 14 days')}
         </h2>
         {timeline.isError ? (
           <QueryError what="the activity chart" onRetry={() => void timeline.refetch()} />
@@ -322,7 +336,7 @@ export function Dashboard() {
           <ActivityChart days={days} />
         ) : (
           <p className="py-8 text-center text-sm text-muted-foreground">
-            The chart appears once Iris has seen some messages.
+            {he('The chart appears once Iris has seen some messages.')}
           </p>
         )}
       </section>
@@ -330,7 +344,7 @@ export function Dashboard() {
       <section aria-labelledby="recent" className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h2 id="recent" className="text-lg font-semibold">
-            Recent alerts
+            {he('Recent alerts')}
           </h2>
           <div className="flex items-center gap-1">
             <RevealButton revealed={revealed} onToggle={toggle} />
@@ -338,7 +352,7 @@ export function Dashboard() {
               to="/alerts"
               className="inline-flex min-h-10 items-center rounded-md px-3 text-sm font-medium text-primary hover:bg-primary-soft"
             >
-              See all
+              {he('See all')}
             </Link>
           </div>
         </div>
@@ -348,9 +362,10 @@ export function Dashboard() {
           ))}
           {alerts.data && alerts.data.items.length === 0 && (
             <li>
-              <EmptyState icon={BellRing} title="No alerts yet">
-                When a message needs your attention, Iris lists it here and sends it to your
-                WhatsApp.
+              <EmptyState icon={BellRing} title={he('No alerts yet')}>
+                {he(
+                  'When a message needs your attention, Iris lists it here and sends it to your WhatsApp.',
+                )}
               </EmptyState>
             </li>
           )}

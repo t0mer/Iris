@@ -1,3 +1,4 @@
+import { he } from '../lib/he'
 import { screen, within, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithApp } from '../test-utils'
@@ -37,8 +38,8 @@ test('adding a parent recipient only saves the alert number', async () => {
     '/api/instances': [],
     '/api/settings': { 'alerts.recipient': '15550100101' },
   })
-  await userEvent.type(await screen.findByLabelText('Parent phone number'), '15550100102')
-  await userEvent.click(screen.getByRole('button', { name: 'Add parent' }))
+  await userEvent.type(await screen.findByLabelText(he('Parent phone number')), '15550100102')
+  await userEvent.click(screen.getByRole('button', { name: he('Add parent') }))
   expect(calls.find((call) => call.method === 'PUT')).toMatchObject({
     url: '/api/settings',
     body: { settings: { 'alerts.recipient': '15550100101, 15550100102' } },
@@ -49,23 +50,23 @@ test('adding a parent recipient only saves the alert number', async () => {
 test('shows each phone with its webhook address and says when nothing has arrived yet', async () => {
   renderWithApp(<Instances />, { '/api/instances': [phone] })
   expect(await screen.findByText('Noa')).toBeInTheDocument()
-  expect(screen.getByLabelText('Webhook address')).toHaveValue(
+  expect(screen.getByLabelText('כתובת ה-webhook')).toHaveValue(
     'https://iris.example.com/webhooks/abc',
   )
-  expect(screen.getByText('Nothing received yet')).toBeInTheDocument()
+  expect(screen.getByText('עדיין לא התקבלו הודעות')).toBeInTheDocument()
 })
 
 test('adding a phone asks for labelled fields and posts them', async () => {
   const calls = renderWithApp(<Instances />, { '/api/instances': [] })
-  expect(await screen.findByText('No phones yet')).toBeInTheDocument()
-  await userEvent.click(screen.getAllByRole('button', { name: /Add a phone/ })[0])
-  const dialog = await screen.findByRole('dialog', { name: 'Add a phone' })
+  expect(await screen.findByText('אין עדיין טלפונים')).toBeInTheDocument()
+  await userEvent.click(screen.getAllByRole('button', { name: /הוספת טלפון/ })[0])
+  const dialog = await screen.findByRole('dialog', { name: 'הוספת טלפון' })
   const d = within(dialog)
-  await userEvent.type(d.getByLabelText("Child's name"), 'Dan')
-  await userEvent.type(d.getByLabelText('OpenWA address'), 'https://wa.example.com')
-  await userEvent.type(d.getByLabelText(/OpenWA session ID/), 'sess-1')
-  await userEvent.type(d.getByLabelText('OpenWA API key'), 'secret')
-  await userEvent.click(d.getByRole('button', { name: 'Add phone' }))
+  await userEvent.type(d.getByLabelText('שם הילד/ה'), 'Dan')
+  await userEvent.type(d.getByLabelText('כתובת OpenWA'), 'https://wa.example.com')
+  await userEvent.type(d.getByLabelText(/מזהה הסשן ב-OpenWA/), 'sess-1')
+  await userEvent.type(d.getByLabelText('מפתח API של OpenWA'), 'secret')
+  await userEvent.click(d.getByRole('button', { name: 'הוספת טלפון' }))
   expect(calls.find((c) => c.method === 'POST')).toMatchObject({
     url: '/api/instances',
     body: {
@@ -80,26 +81,26 @@ test('adding a phone asks for labelled fields and posts them', async () => {
 
 test('removing a phone needs a confirmation that names the consequence; cancel does nothing', async () => {
   const calls = renderWithApp(<Instances />, { '/api/instances': [phone] })
-  await userEvent.click(await screen.findByRole('button', { name: /Remove/ }))
-  const confirm = await screen.findByRole('alertdialog', { name: 'Remove Noa?' })
-  expect(within(confirm).getByText(/stops watching this phone/)).toBeInTheDocument()
-  await userEvent.click(within(confirm).getByRole('button', { name: 'Cancel' }))
+  await userEvent.click(await screen.findByRole('button', { name: /הסרה/ }))
+  const confirm = await screen.findByRole('alertdialog', { name: 'להסיר את Noa?' })
+  expect(within(confirm).getByText(/תפסיק לנטר את הטלפון/)).toBeInTheDocument()
+  await userEvent.click(within(confirm).getByRole('button', { name: 'ביטול' }))
   expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
-  await userEvent.click(screen.getByRole('button', { name: /Remove/ }))
+  await userEvent.click(screen.getByRole('button', { name: /הסרה/ }))
   await userEvent.click(
-    within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Remove phone' }),
+    within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'הסרת הטלפון' }),
   )
   expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/instances/4')).toBe(true)
 })
 
 test('pausing a phone sends enabled false and confirms what changed', async () => {
   const calls = renderWithApp(<Instances />, { '/api/instances': [phone] })
-  await userEvent.click(await screen.findByRole('switch', { name: 'Watch Noa' }))
+  await userEvent.click(await screen.findByRole('switch', { name: 'ניטור Noa' }))
   expect(calls.find((c) => c.method === 'PATCH')).toMatchObject({
     url: '/api/instances/4',
     body: { enabled: false },
   })
-  expect(await screen.findByText('Paused watching Noa.')).toBeInTheDocument()
+  expect(await screen.findByText('הניטור של Noa הושהה.')).toBeInTheDocument()
 })
 
 test('Phones contains children and directs parents to Settings Alerts', async () => {
@@ -108,10 +109,8 @@ test('Phones contains children and directs parents to Settings Alerts', async ()
   })
   expect(await screen.findByText('Noa')).toBeInTheDocument()
   expect(screen.queryByText('Parent sender')).not.toBeInTheDocument()
-  expect(screen.queryByRole('tab', { name: 'Parents' })).not.toBeInTheDocument()
-  expect(
-    screen.getByText(/Parent recipients and sender connections are in Settings/),
-  ).toBeInTheDocument()
+  expect(screen.queryByRole('tab', { name: he('Parents') })).not.toBeInTheDocument()
+  expect(screen.getByText(/נמענים וחיבורים לשליחת התראות/)).toBeInTheDocument()
 })
 
 test('automatic pairing uses configured OpenWA and hides redundant fields', async () => {
@@ -119,15 +118,15 @@ test('automatic pairing uses configured OpenWA and hides redundant fields', asyn
     '/api/instances': [],
     '/api/pairing/config': { configured: true },
   })
-  await userEvent.click(screen.getByRole('button', { name: 'Add a phone' }))
-  await userEvent.click(await screen.findByRole('tab', { name: 'Automatic' }))
+  await userEvent.click(screen.getByRole('button', { name: he('Add a phone') }))
+  await userEvent.click(await screen.findByRole('tab', { name: he('Automatic') }))
   const dialog = within(screen.getByRole('dialog'))
-  expect(dialog.queryByLabelText('OpenWA address')).not.toBeInTheDocument()
-  expect(dialog.queryByLabelText('OpenWA API key')).not.toBeInTheDocument()
-  expect(dialog.queryByLabelText('OpenWA session ID')).not.toBeInTheDocument()
-  expect(dialog.queryByLabelText('Phone number (optional)')).not.toBeInTheDocument()
+  expect(dialog.queryByLabelText(he('OpenWA address'))).not.toBeInTheDocument()
+  expect(dialog.queryByLabelText(he('OpenWA API key'))).not.toBeInTheDocument()
+  expect(dialog.queryByLabelText(he('OpenWA session ID'))).not.toBeInTheDocument()
+  expect(dialog.queryByLabelText(he('Phone number (optional)'))).not.toBeInTheDocument()
   expect(dialog.queryByRole('textbox', { name: /Child's name/ })).not.toBeInTheDocument()
-  expect(dialog.getByRole('button', { name: 'Get pairing QR' })).toBeEnabled()
+  expect(dialog.getByRole('button', { name: he('Get pairing QR') })).toBeEnabled()
 })
 
 test('automatic tab is hidden when server OpenWA configuration is missing', async () => {
@@ -135,17 +134,17 @@ test('automatic tab is hidden when server OpenWA configuration is missing', asyn
     '/api/instances': [],
     '/api/pairing/config': { configured: false },
   })
-  await userEvent.click(screen.getByRole('button', { name: 'Add a phone' }))
-  expect(screen.queryByRole('tab', { name: 'Automatic' })).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: he('Add a phone') }))
+  expect(screen.queryByRole('tab', { name: he('Automatic') })).not.toBeInTheDocument()
 })
 
 test('OpenWA deletion is unchecked by default and sent only when selected', async () => {
   const calls = renderWithApp(<Instances />, { '/api/instances': [phone] })
-  await userEvent.click(await screen.findByRole('button', { name: /Remove/ }))
-  const checkbox = screen.getByRole('checkbox', { name: /Also delete the OpenWA session/ })
+  await userEvent.click(await screen.findByRole('button', { name: /הסרה/ }))
+  const checkbox = screen.getByRole('checkbox', { name: /מחיקת החיבור גם ב־OpenWA/ })
   expect(checkbox).not.toBeChecked()
   await userEvent.click(checkbox)
-  await userEvent.click(screen.getByRole('button', { name: 'Remove phone' }))
+  await userEvent.click(screen.getByRole('button', { name: he('Remove phone') }))
   expect(
     calls.some(
       (call) =>
@@ -160,13 +159,13 @@ test('selected child-role alert sender remains removable under Alerts', async ()
     '/api/settings': { 'alerts.sender_instance_id': phone.id },
   })
   expect(await screen.findByText('Noa')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: /Remove/ })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /הסרה/ })).toBeInTheDocument()
 })
 
 test('removal waits for each stage and retains the dialog for retry after failure', async () => {
   renderWithApp(<Instances />, { '/api/instances': [phone] })
-  await userEvent.click(await screen.findByRole('button', { name: /Remove/ }))
-  await userEvent.click(screen.getByRole('checkbox', { name: /Also delete/ }))
+  await userEvent.click(await screen.findByRole('button', { name: /הסרה/ }))
+  await userEvent.click(screen.getByRole('checkbox', { name: /מחיקת החיבור גם/ }))
   const originalFetch = globalThis.fetch
   let finishLogout!: (response: Response) => void
   let finishDelete!: (response: Response) => void
@@ -184,19 +183,23 @@ test('removal waits for each stage and retains the dialog for retry after failur
       return originalFetch(url, init)
     }),
   )
-  await userEvent.click(screen.getByRole('button', { name: 'Remove phone' }))
-  expect(await screen.findByText('Deactivating WhatsApp…')).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: he('Remove phone') }))
+  expect(await screen.findByText(he('Deactivating WhatsApp…'))).toBeInTheDocument()
   expect(screen.getByRole('progressbar')).toHaveAttribute('value', '0')
-  expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: he('Cancel') })).toBeDisabled()
   await act(async () => finishLogout(new Response(null, { status: 204 })))
-  expect(await screen.findByText('Deleting the OpenWA session…')).toBeInTheDocument()
+  expect(await screen.findByText(he('Deleting the OpenWA session…'))).toBeInTheDocument()
   expect(screen.getByRole('progressbar')).toHaveAttribute('value', '1')
   await act(async () =>
-    finishDelete(new Response(JSON.stringify({ detail: 'OpenWA unavailable' }), { status: 502 })),
+    finishDelete(
+      new Response(JSON.stringify({ detail: he('OpenWA unavailable') }), { status: 502 }),
+    ),
   )
-  expect(await screen.findByRole('alert')).toHaveTextContent('You can retry removal')
+  expect(await screen.findByRole('alert')).toHaveTextContent('אפשר לנסות להסיר שוב')
   expect(screen.getByRole('alertdialog')).toBeInTheDocument()
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Remove phone' })).toBeEnabled())
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: he('Remove phone') })).toBeEnabled(),
+  )
 })
 
 test('successful QR pairing saves automatically and name is a later optional step', async () => {
@@ -217,11 +220,11 @@ test('successful QR pairing saves automatically and name is a later optional ste
       role: 'child',
     },
   })
-  await userEvent.click(screen.getByRole('button', { name: 'Add a phone' }))
-  await userEvent.click(await screen.findByRole('tab', { name: 'Automatic' }))
-  expect(screen.queryByRole('button', { name: 'Add phone' })).not.toBeInTheDocument()
-  await userEvent.click(screen.getByRole('button', { name: 'Get pairing QR' }))
-  expect(await screen.findByRole('dialog', { name: 'Phone connected' })).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: he('Add a phone') }))
+  await userEvent.click(await screen.findByRole('tab', { name: he('Automatic') }))
+  expect(screen.queryByRole('button', { name: he('Add phone') })).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: he('Get pairing QR') }))
+  expect(await screen.findByRole('dialog', { name: he('Phone connected') })).toBeInTheDocument()
   expect(
     calls.filter(
       (call) => call.method === 'POST' && call.url === '/api/pairing/draft-token/complete',
@@ -230,7 +233,7 @@ test('successful QR pairing saves automatically and name is a later optional ste
   expect(
     calls.some((call) => call.method === 'DELETE' && call.url === '/api/pairing/draft-token'),
   ).toBe(false)
-  await userEvent.click(screen.getByRole('button', { name: 'Close' }))
+  await userEvent.click(screen.getByRole('button', { name: he('Close') }))
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   expect(
     calls.some((call) => call.method === 'DELETE' && call.url === '/api/pairing/draft-token'),
@@ -239,16 +242,16 @@ test('successful QR pairing saves automatically and name is a later optional ste
 
 test('edit phone exposes all connection fields and saves the Iris session label', async () => {
   const calls = renderWithApp(<Instances />, { '/api/instances': [phone] })
-  await userEvent.click(await screen.findByRole('button', { name: 'Edit phone' }))
-  const d = within(screen.getByRole('dialog', { name: 'Edit Noa' }))
-  expect(d.getByLabelText(/Display name/)).toHaveValue('Noa')
-  expect(d.getByLabelText(/OpenWA address/)).toHaveValue(phone.openwa_base_url)
-  expect(d.getByLabelText(/OpenWA session ID/)).toHaveValue(phone.openwa_instance_id)
-  expect(d.getByLabelText(/OpenWA API key/)).toHaveValue('')
-  expect(d.getByLabelText(/Phone number/)).toBeInTheDocument()
-  expect(d.getByLabelText(/Phone role/)).toBeInTheDocument()
-  await userEvent.type(d.getByLabelText(/Session name in Iris/), 'Family label')
-  await userEvent.click(d.getByRole('button', { name: 'Save changes' }))
+  await userEvent.click(await screen.findByRole('button', { name: he('Edit phone') }))
+  const d = within(screen.getByRole('dialog', { name: 'עריכת Noa' }))
+  expect(d.getByLabelText(/^שם לתצוגה$/)).toHaveValue('Noa')
+  expect(d.getByLabelText(/כתובת OpenWA/)).toHaveValue(phone.openwa_base_url)
+  expect(d.getByLabelText(/מזהה הסשן ב-OpenWA/)).toHaveValue(phone.openwa_instance_id)
+  expect(d.getByLabelText(/מפתח API של OpenWA/)).toHaveValue('')
+  expect(d.getByLabelText(/מספר טלפון/)).toBeInTheDocument()
+  expect(d.getByLabelText(/תפקיד הטלפון/)).toBeInTheDocument()
+  await userEvent.type(d.getByLabelText(/שם החיבור באיריס/), 'Family label')
+  await userEvent.click(d.getByRole('button', { name: he('Save changes') }))
   expect(calls.find((call) => call.method === 'PATCH')).toMatchObject({
     body: { session_name: 'Family label', verify_openwa: false },
   })
@@ -260,10 +263,10 @@ test('enabled monitoring never hides a WhatsApp session requiring re-pairing', a
       { ...phone, connection_status: 'qr_ready', connection_checked_at: '2026-10-08T18:00:00Z' },
     ],
   })
-  expect(await screen.findByText('WhatsApp needs re-pairing')).toBeInTheDocument()
-  expect(screen.getByText('Monitoring enabled')).toBeInTheDocument()
-  expect(screen.getByRole('alert')).toHaveTextContent('New messages cannot be checked')
-  expect(screen.getByRole('button', { name: 'Check connection' })).toBeInTheDocument()
+  expect(await screen.findByText(he('WhatsApp needs re-pairing'))).toBeInTheDocument()
+  expect(screen.getByText(he('Monitoring enabled'))).toBeInTheDocument()
+  expect(screen.getByRole('alert')).toHaveTextContent('לא ניתן לבדוק הודעות חדשות')
+  expect(screen.getByRole('button', { name: he('Check connection') })).toBeInTheDocument()
 })
 
 test('Phones excludes the selected alert sender even with a legacy child role', async () => {

@@ -20,22 +20,22 @@ function Demo() {
 test('starts hidden: the real text is not on the page, only a mask', () => {
   const { container } = render(<Demo />)
   expect(container).not.toHaveTextContent('secret')
-  expect(screen.getByText('Content hidden')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Show content' })).toBeInTheDocument()
+  expect(screen.getByText('התוכן מוסתר')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'הצגת תוכן' })).toBeInTheDocument()
 })
 
 test('the eye shows and hides it again', async () => {
   render(<Demo />)
-  await userEvent.click(screen.getByRole('button', { name: 'Show content' }))
+  await userEvent.click(screen.getByRole('button', { name: 'הצגת תוכן' }))
   expect(screen.getByText('secret text')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Hide content' })).toBeInTheDocument()
-  await userEvent.click(screen.getByRole('button', { name: 'Hide content' }))
+  expect(screen.getByRole('button', { name: 'הסתרת תוכן' })).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'הסתרת תוכן' }))
   expect(screen.queryByText('secret text')).not.toBeInTheDocument()
 })
 
 test('a fresh view always starts hidden again', async () => {
   const first = render(<Demo />)
-  await userEvent.click(screen.getByRole('button', { name: 'Show content' }))
+  await userEvent.click(screen.getByRole('button', { name: 'הצגת תוכן' }))
   first.unmount()
   render(<Demo />)
   expect(screen.queryByText('secret text')).not.toBeInTheDocument()
@@ -43,18 +43,18 @@ test('a fresh view always starts hidden again', async () => {
 
 test('the mask keeps the length in the layout but never the characters', () => {
   const { container } = render(<Masked length={30} />)
-  expect(container.textContent).toMatch(/^[• ]+Content hidden$/)
+  expect(container.textContent).toMatch(/^[• ]+התוכן מוסתר$/)
   expect(container.querySelector('[aria-hidden="true"]')).not.toBeNull()
 })
 
 test('the label carries the state, so the button is not also announced as pressed', () => {
   render(<Demo />)
-  expect(screen.getByRole('button', { name: 'Show content' })).not.toHaveAttribute('aria-pressed')
+  expect(screen.getByRole('button', { name: 'הצגת תוכן' })).not.toHaveAttribute('aria-pressed')
 })
 
 test('a button for one item says which item, for screen readers', () => {
   render(<RevealButton revealed={false} onToggle={() => {}} context="message from Dan" />)
-  expect(screen.getByRole('button', { name: 'Show content, message from Dan' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'הצגת תוכן, message from Dan' })).toBeInTheDocument()
 })
 
 test('the mask only comes in three sizes, so its length does not give the message away', () => {
@@ -77,7 +77,7 @@ function Scoped({ id }: { id: string }) {
 
 test('moving to another item hides it again even if the component is reused', async () => {
   const { rerender } = render(<Scoped id="1" />)
-  await userEvent.click(screen.getByRole('button', { name: 'Show content' }))
+  await userEvent.click(screen.getByRole('button', { name: 'הצגת תוכן' }))
   expect(screen.getByText('text of 1')).toBeInTheDocument()
   rerender(<Scoped id="2" />)
   expect(screen.getByText('hidden')).toBeInTheDocument()

@@ -1,3 +1,4 @@
+import { he } from '../lib/he'
 import { LoaderCircle } from 'lucide-react'
 import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { api } from '../lib/api'
@@ -96,7 +97,7 @@ export function PhonePairing({
       if (alive.current && token.current === value) {
         update(current.current ? { ...current.current, qr: null, status: 'error' } : null)
         setError(
-          err instanceof Error ? err.message : 'OpenWA connection failed. No QR is available.',
+          err instanceof Error ? err.message : he('OpenWA connection failed. No QR is available.'),
         )
       }
     } finally {
@@ -157,7 +158,7 @@ export function PhonePairing({
       if (alive.current) {
         update(null)
         setError(
-          err instanceof Error ? err.message : 'OpenWA connection failed. No QR is available.',
+          err instanceof Error ? err.message : he('OpenWA connection failed. No QR is available.'),
         )
       }
     } finally {
@@ -175,13 +176,13 @@ export function PhonePairing({
       })
       if (!response.ok)
         throw new Error(
-          'Cleanup is waiting for OpenWA. It will retry automatically; you can retry here too.',
+          he('Cleanup is waiting for OpenWA. It will retry automatically; you can retry here too.'),
         )
       token.current = null
       update(null)
       setError('')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Cleanup failed.')
+      setError(err instanceof Error ? err.message : he('Cleanup failed.'))
     } finally {
       setBusy(false)
     }
@@ -189,17 +190,18 @@ export function PhonePairing({
 
   return (
     <section className="flex flex-col gap-3 rounded-md border bg-surface-2 p-3">
-      <h3 className="font-semibold">Pair a new phone with QR</h3>
+      <h3 className="font-semibold">{he('Pair a new phone with QR')}</h3>
       <p className="text-sm text-muted-foreground">
-        Get the QR code and link WhatsApp first. You can add an optional name after pairing. Iris
-        uses the server’s configured OpenWA connection.
+        {he(
+          'Get the QR code and link WhatsApp first. You can add an optional name after pairing. Iris uses the server’s configured OpenWA connection.',
+        )}
       </p>
       {!state?.token && (
         <Button
           onClick={() => void start()}
           disabled={busy || (name === undefined && (!url || !apiKey))}
         >
-          {busy ? 'Connecting to OpenWA…' : 'Get pairing QR'}
+          {busy ? he('Connecting to OpenWA…') : he('Get pairing QR')}
         </Button>
       )}
       {waiting && (
@@ -211,22 +213,25 @@ export function PhonePairing({
             />
             <span>
               {state?.status === 'starting'
-                ? 'Pairing started. Creating and starting your OpenWA session…'
+                ? he('Pairing started. Creating and starting your OpenWA session…')
                 : state?.status === 'authenticating'
-                  ? 'Scan received. Waiting for WhatsApp to confirm the connection…'
+                  ? he('Scan received. Waiting for WhatsApp to confirm the connection…')
                   : state?.status === 'initializing'
-                    ? 'OpenWA is starting WhatsApp. Waiting for the QR code…'
-                    : 'Session started. Waiting for OpenWA to generate a QR code…'}
+                    ? he('OpenWA is starting WhatsApp. Waiting for the QR code…')
+                    : he('Session started. Waiting for OpenWA to generate a QR code…')}
             </span>
           </div>
-          <progress aria-label="Waiting for WhatsApp pairing" className="h-2 w-full" />
+          <progress aria-label={he('Waiting for WhatsApp pairing')} className="h-2 w-full" />
           <p className="text-xs text-muted-foreground">
-            Elapsed: {elapsed}s. Iris checks for updates every 2 seconds.
+            {he('Elapsed:')}
+            {elapsed}
+            {he('s. Iris checks for updates every 2 seconds.')}
           </p>
           {elapsed >= 20 && (
             <p className="text-sm text-muted-foreground">
-              OpenWA is taking longer to respond. Keep this window open; the QR will appear
-              automatically when available.
+              {he(
+                'OpenWA is taking longer to respond. Keep this window open; the QR will appear automatically when available.',
+              )}
             </p>
           )}
         </div>
@@ -234,9 +239,9 @@ export function PhonePairing({
       {state?.qr && (
         <img
           src={state.qr}
-          alt="WhatsApp pairing QR code"
+          alt={he('WhatsApp pairing QR code')}
           onError={() => {
-            setError('QR image could not be displayed. Requesting a fresh code…')
+            setError(he('QR image could not be displayed. Requesting a fresh code…'))
             void poll(true)
           }}
           className="mx-auto aspect-square w-full max-w-64 rounded-md bg-white p-2"
@@ -247,20 +252,20 @@ export function PhonePairing({
           {!waiting && (
             <p role="status">
               {state.status === 'ready'
-                ? 'WhatsApp connected. Iris is saving this phone automatically.'
+                ? he('WhatsApp connected. Iris is saving this phone automatically.')
                 : state.status === 'qr_ready'
-                  ? 'WhatsApp → Linked devices → Link a device. QR refreshes automatically.'
+                  ? he('WhatsApp → Linked devices → Link a device. QR refreshes automatically.')
                   : state.status === 'error'
-                    ? 'OpenWA unavailable. The QR has been removed.'
-                    : 'Waiting for OpenWA to provide a fresh QR or confirm the connection…'}
+                    ? he('OpenWA unavailable. The QR has been removed.')
+                    : he('Waiting for OpenWA to provide a fresh QR or confirm the connection…')}
             </p>
           )}
           <div className="flex flex-wrap gap-2">
             <Button onClick={() => void poll(true)} disabled={busy || state.status === 'ready'}>
-              Refresh QR
+              {he('Refresh QR')}
             </Button>
             <Button onClick={() => void cancel()} disabled={busy}>
-              Cancel pairing
+              {he('Cancel pairing')}
             </Button>
           </div>
         </>
@@ -271,9 +276,9 @@ export function PhonePairing({
         </p>
       )}
       <p className="text-xs text-muted-foreground">
-        Closing before pairing is saved removes the temporary OpenWA session. After Iris saves the
-        paired phone, closing the optional name step keeps the connection. If a connection is lost,
-        server cleanup retries after the pairing lease expires. Existing sessions are never removed.
+        {he(
+          'Closing before pairing is saved removes the temporary OpenWA session. After Iris saves the paired phone, closing the optional name step keeps the connection. If a connection is lost, server cleanup retries after the pairing lease expires. Existing sessions are never removed.',
+        )}
       </p>
     </section>
   )

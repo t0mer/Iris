@@ -1,3 +1,6 @@
+import { apiErrorMessage } from '../lib/apiErrors'
+import { t, categoryLabel } from '../lib/i18n'
+import { he } from '../lib/he'
 import { ParentConnections } from '../components/PhoneConnections'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -124,12 +127,12 @@ const NUMBERS = [
   'media.retention_days',
 ]
 const NUMBER_LABELS: Record<string, string> = {
-  'alerts.cooldown_minutes': 'Cooldown per chat',
-  'classification.context_window_size': 'Messages of context',
-  'classification.context_max_age_hours': 'Context goes back',
-  'retention.message_days': 'Keep messages for',
-  'retention.alert_days': 'Keep alerts for',
-  'media.retention_days': 'Keep media for',
+  'alerts.cooldown_minutes': he('Cooldown per chat'),
+  'classification.context_window_size': he('Messages of context'),
+  'classification.context_max_age_hours': he('Context goes back'),
+  'retention.message_days': he('Keep messages for'),
+  'retention.alert_days': he('Keep alerts for'),
+  'media.retention_days': he('Keep media for'),
 }
 const BOOLEANS = [
   'runtime.local_safety_mode',
@@ -170,15 +173,17 @@ function SecretInput({
         type="password"
         autoComplete="off"
         value={value}
-        placeholder={isSet ? '•••••••• (saved, leave blank to keep)' : 'Not set'}
+        placeholder={isSet ? t('settings.secretPlaceholder') : he('Not set')}
         onChange={(e) => onChange(e.target.value)}
       />
       {isSet && (
         <ConfirmDialog
-          trigger={<Button variant="outline">Clear</Button>}
-          title="Remove the saved key?"
-          description="Iris stops using it until you enter a new one. Checks that need it will fail in the meantime."
-          confirmLabel="Remove key"
+          trigger={<Button variant="outline">{he('Clear')}</Button>}
+          title={he('Remove the saved key?')}
+          description={he(
+            'Iris stops using it until you enter a new one. Checks that need it will fail in the meantime.',
+          )}
+          confirmLabel={he('Remove key')}
           onConfirm={onClear}
         />
       )}
@@ -193,31 +198,35 @@ function KeptMedia() {
   const remove = useMutation({
     mutationFn: () => api('/api/media', { method: 'DELETE' }),
     onSuccess: () => {
-      toast.success('Kept media is being deleted.')
+      toast.success(he('Kept media is being deleted.'))
       return qc.invalidateQueries({ queryKey: ['stats'] })
     },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not delete the media.'),
+    onError: (e) =>
+      toast.error(e instanceof ApiError ? e.message : he('Could not delete the media.')),
   })
   const files = stats.data?.media_files ?? 0
   if (files === 0) return null
   return (
     <Section
-      title="Kept now"
-      description="Files stay until their keep time ends, even if you turn keeping off."
+      title={he('Kept now')}
+      description={he('Files stay until their keep time ends, even if you turn keeping off.')}
     >
       <p className="text-sm">
-        <span className="tabular font-medium">{files}</span> {files === 1 ? 'file' : 'files'},{' '}
+        <span className="tabular font-medium">{files}</span> {he(files === 1 ? 'file' : 'files')},{' '}
         {fileSize(stats.data?.media_bytes ?? 0)}
       </p>
       <ConfirmDialog
         trigger={
           <Button variant="outline" className="w-fit" disabled={remove.isPending}>
-            <Trash2 /> Delete all kept media
+            <Trash2 />
+            {he('Delete all kept media')}
           </Button>
         }
-        title="Delete all kept media?"
-        description="Every kept photo and voice note is deleted from the storage. The messages and alerts stay."
-        confirmLabel="Delete media"
+        title={he('Delete all kept media?')}
+        description={he(
+          'Every kept photo and voice note is deleted from the storage. The messages and alerts stay.',
+        )}
+        confirmLabel={he('Delete media')}
         onConfirm={() => remove.mutate()}
       />
     </Section>
@@ -227,7 +236,7 @@ function KeptMedia() {
 function TestButton({
   target,
   body,
-  label = 'Test',
+  label = he('Test'),
 }: {
   label?: string
   target: string
@@ -244,7 +253,7 @@ function TestButton({
     <div className="flex flex-wrap items-center gap-3">
       <Button variant="outline" onClick={() => test.mutate()} disabled={test.isPending}>
         {test.isPending && <Loader2 className="animate-spin" />}{' '}
-        {test.isPending ? 'Testing' : label}
+        {test.isPending ? he('Testing') : label}
       </Button>
       {test.data && (
         <span
@@ -252,7 +261,7 @@ function TestButton({
           className={`flex items-center gap-1.5 text-sm ${test.data.ok ? 'text-success' : 'text-danger'}`}
         >
           {test.data.ok ? <CheckCircle2 className="size-4" /> : <XCircle className="size-4" />}
-          {test.data.detail}
+          {apiErrorMessage(test.data.detail, test.data.ok ? 200 : 400)}
         </span>
       )}
       {test.error && <span className="text-sm text-danger">{String(test.error.message)}</span>}
@@ -299,9 +308,9 @@ function ThresholdsTable({
   return (
     <div className="flex flex-col gap-3">
       <div className="hidden grid-cols-[1fr_7rem_7rem] gap-3 px-1 text-sm font-medium text-muted-foreground sm:grid">
-        <span>Category</span>
-        <span>Needs a look from</span>
-        <span>Harmful from</span>
+        <span>{he('Category')}</span>
+        <span>{he('Needs a look from')}</span>
+        <span>{he('Harmful from')}</span>
       </div>
       <ul className="flex flex-col divide-y">
         {data.map((r) => (
@@ -309,7 +318,9 @@ function ThresholdsTable({
             key={r.category}
             className="grid grid-cols-2 items-center gap-x-3 gap-y-1.5 py-2.5 sm:grid-cols-[1fr_7rem_7rem]"
           >
-            <span className="col-span-2 text-sm font-medium sm:col-span-1">{r.category}</span>
+            <span className="col-span-2 text-sm font-medium sm:col-span-1">
+              {categoryLabel(r.category)}
+            </span>
             {(['low', 'high'] as const).map((f) => (
               <Input
                 key={f}
@@ -318,7 +329,7 @@ function ThresholdsTable({
                 step="0.01"
                 min={0}
                 max={1}
-                aria-label={`${r.category} ${f}`}
+                aria-label={`${categoryLabel(r.category)} ${he(f === 'low' ? 'Worth a look' : 'Harmful')}`}
                 value={edits[r.category]?.[f] ?? String(r[f])}
                 onChange={(e) => onEdit(r.category, f, e.target.value)}
               />
@@ -327,11 +338,13 @@ function ThresholdsTable({
         ))}
       </ul>
       <Button variant="outline" className="self-start" onClick={onReset}>
-        <RotateCcw /> Reset all to defaults
+        <RotateCcw />
+        {he('Reset all to defaults')}
       </Button>
       <p className="max-w-prose text-sm text-muted-foreground">
-        A score at or above the harmful level is flagged. Between the two levels Iris is unsure: it
-        looks again with the chat around the message, then asks you to review it if still unclear.
+        {he(
+          'A score at or above the harmful level is flagged. Between the two levels Iris is unsure: it looks again with the chat around the message, then asks you to review it if still unclear.',
+        )}
       </p>
     </div>
   )
@@ -343,38 +356,44 @@ function Account() {
   async function submit(e: FormEvent) {
     e.preventDefault()
     setMsg(null)
-    if (form.next !== form.confirm) return setMsg('The new passwords do not match.')
+    if (form.next !== form.confirm) return setMsg(he('The new passwords do not match.'))
     try {
       await api('/api/auth/password', {
         method: 'POST',
         body: JSON.stringify({ current_password: form.current, new_password: form.next }),
       })
       setForm({ current: '', next: '', confirm: '' })
-      toast.success('Password changed. Any other signed-in sessions were signed out.')
+      toast.success(he('Password changed. Any other signed-in sessions were signed out.'))
     } catch (err) {
-      setMsg(err instanceof ApiError ? err.message : 'Could not change the password. Try again.')
+      setMsg(
+        err instanceof ApiError ? err.message : he('Could not change the password. Try again.'),
+      )
     }
   }
   const showByDefault = useShowContentByDefault()
   return (
     <>
       <Section
-        title="On this browser"
-        description="Stored content (message text, alert quotes, kept photos and voice notes) is hidden until you press the eye. This applies to this browser only."
+        title={he('On this browser')}
+        description={he(
+          'Stored content (message text, alert quotes, kept photos and voice notes) is hidden until you press the eye. This applies to this browser only.',
+        )}
       >
         <Toggle
-          label="Show content by default"
-          hint="Everything starts shown, and you can still hide it with the eye. Leave it off on a shared screen."
+          label={he('Show content by default')}
+          hint={he(
+            'Everything starts shown, and you can still hide it with the eye. Leave it off on a shared screen.',
+          )}
           checked={showByDefault}
           onChange={setShowContentByDefault}
         />
       </Section>
       <Section
-        title="Change password"
-        description="Use at least 8 characters. Changing it signs out every other browser."
+        title={he('Change password')}
+        description={he('Use at least 8 characters. Changing it signs out every other browser.')}
       >
         <form onSubmit={submit} className="flex max-w-sm flex-col gap-4">
-          <Field label="Current password">
+          <Field label={he('Current password')}>
             <Input
               type="password"
               autoComplete="current-password"
@@ -382,7 +401,7 @@ function Account() {
               onChange={(e) => setForm({ ...form, current: e.target.value })}
             />
           </Field>
-          <Field label="New password (at least 8 characters)">
+          <Field label={he('New password (at least 8 characters)')}>
             <Input
               type="password"
               autoComplete="new-password"
@@ -390,7 +409,7 @@ function Account() {
               onChange={(e) => setForm({ ...form, next: e.target.value })}
             />
           </Field>
-          <Field label="Repeat new password">
+          <Field label={he('Repeat new password')}>
             <Input
               type="password"
               autoComplete="new-password"
@@ -404,7 +423,7 @@ function Account() {
             </p>
           )}
           <Button type="submit" variant="primary" className="self-start">
-            Change password
+            {he('Change password')}
           </Button>
         </form>
       </Section>
@@ -437,8 +456,8 @@ export function Settings() {
   if (isError)
     return (
       <div className="flex flex-col gap-5">
-        <PageHeader title="Settings" />
-        <QueryError what="the settings" onRetry={() => void refetch()} />
+        <PageHeader title={he('Settings')} />
+        <QueryError what={he('the settings')} onRetry={() => void refetch()} />
       </div>
     )
   if (!data) return <PageLoading />
@@ -467,12 +486,12 @@ export function Settings() {
       setEdit((e) => Object.fromEntries(Object.entries(e).filter(([k]) => !clearKeys.includes(k))))
       if ('classification.thresholds' in changes) setThresholdEdits({})
       await qc.invalidateQueries()
-      toast.success('Settings saved.')
+      toast.success(he('Settings saved.'))
     } catch (e) {
       toast.error(
         e instanceof ApiError
-          ? `Not saved: ${e.message}`
-          : 'Not saved. Check your connection and try again.',
+          ? t('settings.notSaved', e.message)
+          : he('Not saved. Check your connection and try again.'),
       )
     } finally {
       setSaving(false)
@@ -487,7 +506,7 @@ export function Settings() {
       if (SECRETS.includes(k) && v === '') continue // blank secret = keep
       if (NUMBERS.includes(k)) {
         if (v.trim() === '' || !Number.isFinite(Number(v))) {
-          toast.error(`Enter a number for "${NUMBER_LABELS[k] ?? k}".`)
+          toast.error(he('Enter a number for "{name}".', { name: NUMBER_LABELS[k] ?? k }))
           return
         }
         changes[k] = Number(v)
@@ -498,7 +517,7 @@ export function Settings() {
     const overrides = thresholdOverrides()
     if (overrides === 'invalid') {
       toast.error(
-        'Thresholds must be numbers from 0 to 1, with "needs a look" lower than "harmful".',
+        he('Thresholds must be numbers from 0 to 1, with "needs a look" lower than "harmful".'),
       )
       return
     }
@@ -535,8 +554,10 @@ export function Settings() {
   return (
     <div className="flex max-w-5xl flex-col gap-5">
       <PageHeader
-        title="Settings"
-        description="Providers, how Iris judges messages, where alerts go, and how long things are kept."
+        title={he('Settings')}
+        description={he(
+          'Providers, how Iris judges messages, where alerts go, and how long things are kept.',
+        )}
       />
       <Tabs
         value={tab}
@@ -545,7 +566,7 @@ export function Settings() {
         className="flex flex-col gap-5 md:flex-row md:items-start"
       >
         <TabsList
-          aria-label="Settings sections"
+          aria-label={he('Settings sections')}
           className="-mx-4 px-4 md:mx-0 md:w-52 md:shrink-0 md:flex-col md:px-0"
         >
           {TABS.map((t) => {
@@ -553,7 +574,7 @@ export function Settings() {
             return (
               <TabsTrigger key={t} value={t} className="md:justify-start">
                 <span className="flex items-center gap-2">
-                  <Icon className="size-4" /> {t}
+                  <Icon className="size-4" /> {he(t)}
                 </span>
               </TabsTrigger>
             )
@@ -563,40 +584,45 @@ export function Settings() {
         <div className="flex min-w-0 flex-1 flex-col gap-5">
           <TabsContent value="Providers" className="flex flex-col gap-5">
             <Section
-              title="Classification provider"
-              description="Choose how Iris classifies messages. Saved choices override server environment defaults."
+              title={he('Classification provider')}
+              description={he(
+                'Choose how Iris classifies messages. Saved choices override server environment defaults.',
+              )}
             >
-              <Field label="Classification provider">
+              <Field label={he('Classification provider')}>
                 <Select
                   value={classifier}
                   onChange={(e) => set('runtime.classification_provider')(e.target.value)}
                 >
                   <option value="openai">OpenAI</option>
-                  <option value="ollama">Ollama (local)</option>
+                  <option value="ollama">{he('Ollama (local)')}</option>
                 </Select>
               </Field>
             </Section>
             {classifier === 'ollama' ? (
               <Section
                 title="Ollama"
-                description="Local text classifier. Test the entered endpoint and model, then save to use them for new jobs."
+                description={he(
+                  'Local text classifier. Test the entered endpoint and model, then save to use them for new jobs.',
+                )}
               >
-                <Field label="Ollama endpoint">
+                <Field label={he('Ollama endpoint')}>
                   <Input
                     value={get('runtime.ollama_base_url')}
                     onChange={(e) => set('runtime.ollama_base_url')(e.target.value)}
                     placeholder="http://localhost:11434"
                   />
                 </Field>
-                <Field label="Ollama model">
+                <Field label={he('Ollama model')}>
                   <Input
                     value={get('runtime.ollama_model') || data.local_providers?.ollama_model || ''}
                     onChange={(e) => set('runtime.ollama_model')(e.target.value)}
                   />
                 </Field>
                 <p className="text-sm text-muted-foreground">
-                  Local scores require calibration. Images and stickers require manual review in
-                  local safety mode.
+                  {he(
+                    'Local scores require calibration. Images and stickers require manual review in local safety mode.',
+                  )}
                 </p>
                 <TestButton
                   target="ollama"
@@ -604,15 +630,15 @@ export function Settings() {
                     base_url: get('runtime.ollama_base_url'),
                     model: get('runtime.ollama_model') || data.local_providers?.ollama_model,
                   }}
-                  label="Test Ollama"
+                  label={he('Test Ollama')}
                 />
               </Section>
             ) : (
               <Section
                 title="OpenAI"
-                description="Checks every message for harm. The moderation endpoint is free."
+                description={he('Checks every message for harm. The moderation endpoint is free.')}
               >
-                <Field label="API key">
+                <Field label={he('API key')}>
                   <SecretInput
                     value={get('openai.api_key')}
                     isSet={data['openai.api_key'].set}
@@ -627,10 +653,12 @@ export function Settings() {
               </Section>
             )}
             <Section
-              title="Transcription provider"
-              description="Choose local transcription, OpenAI, or Cloudflare. No automatic cloud fallback is used."
+              title={he('Transcription provider')}
+              description={he(
+                'Choose local transcription, OpenAI, or Cloudflare. No automatic cloud fallback is used.',
+              )}
             >
-              <Field label="Provider">
+              <Field label={he('Provider')}>
                 <Select
                   value={provider}
                   onChange={(e) => {
@@ -642,23 +670,25 @@ export function Settings() {
                 >
                   <option value="openai">OpenAI</option>
                   <option value="cloudflare">Cloudflare Workers AI</option>
-                  <option value="local_whisper">Mila companion / local Whisper</option>
+                  <option value="local_whisper">{he('Mila companion / local Whisper')}</option>
                 </Select>
               </Field>
             </Section>
             {provider === 'local_whisper' ? (
               <Section
-                title="Mila companion / local Whisper"
-                description="Active local transcription API. The Mila desktop app itself does not provide this API."
+                title={he('Mila companion / local Whisper')}
+                description={he(
+                  'Active local transcription API. The Mila desktop app itself does not provide this API.',
+                )}
               >
-                <Field label="Transcription endpoint">
+                <Field label={he('Transcription endpoint')}>
                   <Input
                     value={get('runtime.whisper_url')}
                     onChange={(e) => set('runtime.whisper_url')(e.target.value)}
                     placeholder="http://mac.example:8081/v1/audio/transcriptions"
                   />
                 </Field>
-                <Field label="Local transcription model">
+                <Field label={he('Local transcription model')}>
                   <Input
                     list="whisper-models"
                     value={
@@ -674,7 +704,7 @@ export function Settings() {
                   <option value="ivrit-large-v3" />
                   <option value="large-v3-turbo" />
                 </datalist>
-                <Field label="Local transcription API key">
+                <Field label={he('Local transcription API key')}>
                   <SecretInput
                     value={get('runtime.whisper_api_key')}
                     isSet={data['runtime.whisper_api_key']?.set || false}
@@ -688,19 +718,20 @@ export function Settings() {
                   />
                 </Field>
                 <Toggle
-                  label="Use environment API key when no saved key exists"
+                  label={he('Use environment API key when no saved key exists')}
                   checked={get('runtime.whisper_use_environment_key') !== 'false'}
                   onChange={(value) => set('runtime.whisper_use_environment_key')(String(value))}
                 />
-                <Field label="Fallback model (optional)">
+                <Field label={he('Fallback model (optional)')}>
                   <Input
                     value={get('runtime.whisper_fallback_model')}
                     onChange={(e) => set('runtime.whisper_fallback_model')(e.target.value)}
                   />
                 </Field>
                 <p className="text-sm text-muted-foreground">
-                  Audio and video audio tracks are transcribed. Test the endpoint, model and key
-                  before saving. Changing the host requires re-entering the API key.
+                  {he(
+                    'Audio and video audio tracks are transcribed. Test the endpoint, model and key before saving. Changing the host requires re-entering the API key.',
+                  )}
                 </p>
                 <TestButton
                   target="local_whisper"
@@ -710,16 +741,16 @@ export function Settings() {
                       get('runtime.whisper_model') || data.local_providers?.transcription_model,
                     api_key: edit['runtime.whisper_api_key'] || undefined,
                   }}
-                  label="Test transcription connection"
+                  label={he('Test transcription connection')}
                 />
               </Section>
             ) : (
               <Section
-                title="Voice and video"
-                description="Turns audio into text so it can be checked like any message."
+                title={he('Voice and video')}
+                description={he('Turns audio into text so it can be checked like any message.')}
               >
                 {provider === 'openai' ? (
-                  <Field label="OpenAI model">
+                  <Field label={he('OpenAI model')}>
                     <Select
                       value={get('transcription.openai_model')}
                       onChange={(e) => set('transcription.openai_model')(e.target.value)}
@@ -730,14 +761,14 @@ export function Settings() {
                   </Field>
                 ) : (
                   <>
-                    <Field label="Cloudflare account ID">
+                    <Field label={he('Cloudflare account ID')}>
                       <Input
                         dir="ltr"
                         value={get('transcription.cloudflare_account_id')}
                         onChange={(e) => set('transcription.cloudflare_account_id')(e.target.value)}
                       />
                     </Field>
-                    <Field label="Cloudflare API token">
+                    <Field label={he('Cloudflare API token')}>
                       <SecretInput
                         value={get('transcription.cloudflare_api_token')}
                         isSet={data['transcription.cloudflare_api_token'].set}
@@ -745,7 +776,7 @@ export function Settings() {
                         onClear={() => void save({ 'transcription.cloudflare_api_token': null })}
                       />
                     </Field>
-                    <Field label="Model">
+                    <Field label={he('Model')}>
                       <Input
                         dir="ltr"
                         value={get('transcription.cloudflare_model')}
@@ -768,46 +799,60 @@ export function Settings() {
 
           <TabsContent value="Classification" className="flex flex-col gap-5">
             <Section
-              title="Processing mode"
-              description="Safety mode keeps unexamined media for review. Worker changes apply to new jobs; in-flight jobs finish."
+              title={he('Processing mode')}
+              description={he(
+                'Safety mode keeps unexamined media for review. Worker changes apply to new jobs; in-flight jobs finish.',
+              )}
             >
               <Toggle
-                label="Local safety mode"
+                label={he('Local safety mode')}
                 checked={get('runtime.local_safety_mode') === 'true'}
                 onChange={(value) => set('runtime.local_safety_mode')(String(value))}
               />
               <Toggle
-                label="Require signed webhooks"
+                label={he('Require signed webhooks')}
                 checked={get('runtime.require_webhook_signatures') === 'true'}
                 onChange={(value) => set('runtime.require_webhook_signatures')(String(value))}
               />
-              {num('runtime.workers', 'Classification workers (0 pauses processing)', 0, 16)}
-              {num('runtime.delivery_workers', 'Dedicated alert workers', 0, 4)}
-              {num('runtime.job_heartbeat_seconds', 'Job heartbeat seconds (0 disables)', 0, 120)}
+              {num('runtime.workers', he('Classification workers (0 pauses processing)'), 0, 16)}
+              {num('runtime.delivery_workers', he('Dedicated alert workers'), 0, 4)}
+              {num(
+                'runtime.job_heartbeat_seconds',
+                he('Job heartbeat seconds (0 disables)'),
+                0,
+                120,
+              )}
               {num(
                 'runtime.monitoring_silence_minutes',
-                'Monitoring silence minutes (0 disables)',
+                he('Monitoring silence minutes (0 disables)'),
                 0,
                 10080,
               )}
             </Section>
             <Section
-              title="Moderation"
-              description="How much of the chat Iris reads around a message it is unsure about."
+              title={he('Moderation')}
+              description={he(
+                'How much of the chat Iris reads around a message it is unsure about.',
+              )}
             >
-              <Field label="OpenAI moderation model">
+              <Field label={he('OpenAI moderation model')}>
                 <Input
                   dir="ltr"
                   value={get('classification.model')}
                   onChange={(e) => set('classification.model')(e.target.value)}
                 />
               </Field>
-              {num('classification.context_window_size', 'Messages of context (1 to 20)', 1, 20)}
-              {num('classification.context_max_age_hours', 'Context goes back (hours)', 1, 168)}
+              {num(
+                'classification.context_window_size',
+                he('Messages of context (1 to 20)'),
+                1,
+                20,
+              )}
+              {num('classification.context_max_age_hours', he('Context goes back (hours)'), 1, 168)}
             </Section>
             <Section
-              title="Thresholds"
-              description="Scores are 0 to 1. Lower numbers make Iris more cautious."
+              title={he('Thresholds')}
+              description={he('Scores are 0 to 1. Lower numbers make Iris more cautious.')}
             >
               <ThresholdsTable
                 edits={thresholdEdits}
@@ -829,15 +874,17 @@ export function Settings() {
           <TabsContent value="Alerts" className="flex flex-col gap-5">
             <ParentConnections />
             <Section
-              title="Where alerts go"
-              description="Iris sends each alert to every listed parent from one linked WhatsApp phone. Up to 10 recipients."
+              title={he('Where alerts go')}
+              description={he(
+                'Iris sends each alert to every listed parent from one linked WhatsApp phone. Up to 10 recipients.',
+              )}
             >
-              <Field label="Send alerts from">
+              <Field label={he('Send alerts from')}>
                 <Select
                   value={get('alerts.sender_instance_id')}
                   onChange={(e) => set('alerts.sender_instance_id')(e.target.value)}
                 >
-                  <option value="">Not set</option>
+                  <option value="">{he('Not set')}</option>
                   {instances?.map((i) => (
                     <option key={i.id} value={i.id}>
                       {i.kid_name}
@@ -853,9 +900,9 @@ export function Settings() {
                 }}
               />
             </Section>
-            <Section title="Frequency and timing">
-              {num('alerts.cooldown_minutes', 'Cooldown per chat (minutes)', 0, 1440)}
-              <Field label="Time zone">
+            <Section title={he('Frequency and timing')}>
+              {num('alerts.cooldown_minutes', he('Cooldown per chat (minutes)'), 0, 1440)}
+              <Field label={he('Time zone')}>
                 <Input
                   dir="ltr"
                   value={get('alerts.timezone')}
@@ -864,63 +911,75 @@ export function Settings() {
               </Field>
               {bool(
                 'alerts.alert_on_review',
-                'Also alert on items needing review',
-                'Off by default: those wait in the Review page instead.',
+                he('Also alert on items needing review'),
+                he('Off by default: those wait in the Review page instead.'),
               )}
               {bool(
                 'alerts.notify_changes',
-                'Tell me when an alerted message is edited or deleted',
-                'Sends a short follow-up on WhatsApp. It never repeats the message.',
+                he('Tell me when an alerted message is edited or deleted'),
+                he('Sends a short follow-up on WhatsApp. It never repeats the message.'),
               )}
             </Section>
           </TabsContent>
 
           <TabsContent value="Scope" className="flex flex-col gap-5">
             <Section
-              title="What to watch"
-              description="Turn off anything you do not want Iris to check."
+              title={he('What to watch')}
+              description={he('Turn off anything you do not want Iris to check.')}
             >
               <div className="flex flex-col divide-y">
-                {bool('scope.monitor_from_me', 'Messages the child sends')}
-                {bool('scope.monitor_direct', 'Direct chats')}
-                {bool('scope.monitor_groups', 'Groups')}
+                {bool('scope.monitor_from_me', he('Messages the child sends'))}
+                {bool('scope.monitor_direct', he('Direct chats'))}
+                {bool('scope.monitor_groups', he('Groups'))}
               </div>
             </Section>
           </TabsContent>
 
           <TabsContent value="Retention" className="flex flex-col gap-5">
             <Section
-              title="How long to keep things"
-              description="Messages tied to an alert are kept until that alert expires. Kept media has its own limit under Media."
+              title={he('How long to keep things')}
+              description={he(
+                'Messages tied to an alert are kept until that alert expires. Kept media has its own limit under Media.',
+              )}
             >
-              {num('retention.message_days', 'Keep messages for (days)', 1)}
-              {num('retention.alert_days', 'Keep alerts for (days)', 1)}
+              {num('retention.message_days', he('Keep messages for (days)'), 1)}
+              {num('retention.alert_days', he('Keep alerts for (days)'), 1)}
             </Section>
           </TabsContent>
 
           <TabsContent value="Media" className="flex flex-col gap-5">
             <Section
-              title="Keep media"
-              description="By default Iris deletes every photo and voice note as soon as it has been checked. Turn this on to keep copies you can open from alerts."
+              title={he('Keep media')}
+              description={he(
+                'By default Iris deletes every photo and voice note as soon as it has been checked. Turn this on to keep copies you can open from alerts.',
+              )}
             >
               <Toggle
-                label="Keep media"
-                hint="Files can only be opened after you sign in to Iris."
+                label={he('Keep media')}
+                hint={he('Files can only be opened after you sign in to Iris.')}
                 checked={mediaOn}
                 onChange={(on) => set('media.policy')(on ? 'harmful' : 'off')}
               />
               {mediaOn && (
                 <fieldset className="flex flex-col gap-2">
-                  <legend className="mb-1 text-sm font-medium">What to keep</legend>
+                  <legend className="mb-1 text-sm font-medium">{he('What to keep')}</legend>
                   {(
                     [
-                      ['harmful', 'Only what Iris judges harmful', 'The media behind your alerts.'],
+                      [
+                        'harmful',
+                        he('Only what Iris judges harmful'),
+                        he('The media behind your alerts.'),
+                      ],
                       [
                         'harmful_review',
-                        'Harmful and needs a look',
-                        'Also the items waiting in the review queue.',
+                        he('Harmful and needs a look'),
+                        he('Also the items waiting in the review queue.'),
                       ],
-                      ['all', 'Everything', 'Every photo and voice note. Uses the most space.'],
+                      [
+                        'all',
+                        he('Everything'),
+                        he('Every photo and voice note. Uses the most space.'),
+                      ],
                     ] as const
                   ).map(([value, label, hint]) => (
                     <label key={value} className="flex items-start gap-3 text-sm">
@@ -940,39 +999,45 @@ export function Settings() {
                 </fieldset>
               )}
               <p className="max-w-prose text-sm text-muted-foreground">
-                Content Iris withholds (anything sexual involving minors, or sexual images) is never
-                kept, whatever you choose. Videos are not kept at all, because Iris checks what a
-                video says, not what it shows.
+                {he(
+                  'Content Iris withholds (anything sexual involving minors, or sexual images) is never kept, whatever you choose. Videos are not kept at all, because Iris checks what a video says, not what it shows.',
+                )}
               </p>
             </Section>
             <KeptMedia />
 
             {mediaOn && (
               <>
-                <Section title="Where to keep it">
-                  <Field label="Storage" className="max-w-72">
+                <Section title={he('Where to keep it')}>
+                  <Field label={he('Storage')} className="max-w-72">
                     <Select
                       value={get('media.backend')}
                       onChange={(e) => set('media.backend')(e.target.value)}
                     >
-                      <option value="local">This server&apos;s disk</option>
-                      <option value="s3">S3-compatible storage</option>
+                      <option value="local">{he('This server&apos;s disk')}</option>
+                      <option value="s3">{he('S3-compatible storage')}</option>
                     </Select>
                   </Field>
                   {get('media.backend') === 'local' ? (
                     <p className="max-w-prose text-sm text-muted-foreground">
-                      Files go to the <code>media</code> folder inside Iris&apos;s data folder, next
-                      to the database. In Docker that is the data volume.
+                      {he('Files go to the')}
+                      <code>media</code>
+                      {he(
+                        'folder inside Iris&apos;s data folder, next to the database. In Docker that is the data volume.',
+                      )}
                     </p>
                   ) : (
                     <>
                       <p className="max-w-prose text-sm text-muted-foreground">
-                        Works with Cloudflare R2, AWS S3, SeaweedFS, MinIO and other S3-compatible
-                        services. Create the bucket first.
+                        {he(
+                          'Works with Cloudflare R2, AWS S3, SeaweedFS, MinIO and other S3-compatible services. Create the bucket first.',
+                        )}
                       </p>
                       <Field
-                        label="Endpoint"
-                        hint="For example https://ACCOUNT.r2.cloudflarestorage.com, https://s3.eu-west-1.amazonaws.com or http://seaweed.lan:8333"
+                        label={he('Endpoint')}
+                        hint={he(
+                          'For example https://ACCOUNT.r2.cloudflarestorage.com, https://s3.eu-west-1.amazonaws.com or http://seaweed.lan:8333',
+                        )}
                       >
                         <Input
                           dir="ltr"
@@ -982,7 +1047,7 @@ export function Settings() {
                         />
                       </Field>
                       <div className="grid gap-4 sm:grid-cols-2">
-                        <Field label="Bucket">
+                        <Field label={he('Bucket')}>
                           <Input
                             dir="ltr"
                             value={get('media.s3_bucket')}
@@ -990,7 +1055,7 @@ export function Settings() {
                             autoComplete="off"
                           />
                         </Field>
-                        <Field label="Region" hint="Use auto for Cloudflare R2.">
+                        <Field label={he('Region')} hint={he('Use auto for Cloudflare R2.')}>
                           <Input
                             dir="ltr"
                             value={get('media.s3_region')}
@@ -999,7 +1064,7 @@ export function Settings() {
                           />
                         </Field>
                       </div>
-                      <Field label="Access key ID">
+                      <Field label={he('Access key ID')}>
                         <Input
                           dir="ltr"
                           value={get('media.s3_access_key')}
@@ -1007,7 +1072,7 @@ export function Settings() {
                           autoComplete="off"
                         />
                       </Field>
-                      <Field label="Secret access key">
+                      <Field label={he('Secret access key')}>
                         <SecretInput
                           value={get('media.s3_secret_key')}
                           isSet={data['media.s3_secret_key'].set}
@@ -1016,8 +1081,8 @@ export function Settings() {
                         />
                       </Field>
                       <Field
-                        label="Folder in the bucket"
-                        hint="Optional. Everything is kept under it."
+                        label={he('Folder in the bucket')}
+                        hint={he('Optional. Everything is kept under it.')}
                       >
                         <Input
                           dir="ltr"
@@ -1028,8 +1093,10 @@ export function Settings() {
                       </Field>
                       {bool(
                         'media.s3_path_style',
-                        'Path-style addresses',
-                        'Keep this on for R2, SeaweedFS and MinIO. Turn it off for AWS S3 buckets that need bucket.host addresses.',
+                        he('Path-style addresses'),
+                        he(
+                          'Keep this on for R2, SeaweedFS and MinIO. Turn it off for AWS S3 buckets that need bucket.host addresses.',
+                        ),
                       )}
                     </>
                   )}
@@ -1047,15 +1114,16 @@ export function Settings() {
                         path_style: get('media.s3_path_style') === 'true',
                       },
                     }}
-                    label="Test storage"
+                    label={he('Test storage')}
                   />
                 </Section>
 
-                <Section title="How long to keep it">
-                  {num('media.retention_days', 'Keep media for (days)', 1)}
+                <Section title={he('How long to keep it')}>
+                  {num('media.retention_days', he('Keep media for (days)'), 1)}
                   <p className="max-w-prose text-sm text-muted-foreground">
-                    Older files are deleted from the storage. The message and its alert stay until
-                    their own limits under Retention.
+                    {he(
+                      'Older files are deleted from the storage. The message and its alert stay until their own limits under Retention.',
+                    )}
                   </p>
                 </Section>
               </>
@@ -1072,7 +1140,7 @@ export function Settings() {
 
           {dirty && tab !== 'Account' && tab !== 'Database' && (
             <div className="sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-20 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-surface p-3 shadow-overlay md:bottom-4">
-              <p className="text-sm text-muted-foreground">You have unsaved changes.</p>
+              <p className="text-sm text-muted-foreground">{he('You have unsaved changes.')}</p>
               <div className="flex gap-2">
                 <Button
                   variant="ghost"
@@ -1081,10 +1149,11 @@ export function Settings() {
                     setThresholdEdits({})
                   }}
                 >
-                  Discard
+                  {he('Discard')}
                 </Button>
                 <Button variant="primary" onClick={saveAll} disabled={saving}>
-                  {saving && <Loader2 className="animate-spin" />} Save
+                  {saving && <Loader2 className="animate-spin" />}
+                  {he('Save')}
                 </Button>
               </div>
             </div>

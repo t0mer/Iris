@@ -18,6 +18,7 @@ import { Skeleton } from '../components/ui/skeleton'
 import { api, ApiError } from '../lib/api'
 import { cn } from '../lib/cn'
 import { dateTime } from '../lib/format'
+import { strings, t } from '../lib/i18n'
 import type { Message, MessageDetail } from '../lib/types'
 import { QueryError } from '../components/QueryError'
 
@@ -46,11 +47,11 @@ export function MessageContext() {
   const reprocess = useMutation({
     mutationFn: () => api(`/api/messages/${id}/reprocess`, { method: 'POST' }),
     onSuccess: () => {
-      toast.success('Checking this message again.')
+      toast.success(t('messageContext.recheckingToast'))
       return qc.invalidateQueries()
     },
     onError: (e) =>
-      toast.error(e instanceof ApiError ? e.message : 'Could not re-check the message.'),
+      toast.error(e instanceof ApiError ? e.message : t('messageContext.recheckFailed')),
   })
 
   return (
@@ -59,13 +60,18 @@ export function MessageContext() {
         to="/messages"
         className="inline-flex min-h-10 w-fit items-center gap-1 text-sm font-medium text-primary"
       >
-        <ChevronLeft className="size-4 rtl:rotate-180" /> All messages
+        <ChevronLeft className="size-4 rtl:rotate-180" /> {t('messageContext.allMessages')}
       </Link>
       <PageHeader
-        title={detail?.chat_name ?? (detail?.is_group ? 'Group conversation' : 'Conversation')}
+        title={
+          detail?.chat_name ??
+          (detail?.is_group
+            ? t('messageContext.groupConversation')
+            : t('messageContext.conversation'))
+        }
         description={
           detail
-            ? `Watched on ${detail.kids.map((k) => k.kid_name).join(' and ')}'s phone`
+            ? t('messageContext.watchedOn', strings.names.join(detail.kids.map((k) => k.kid_name)))
             : undefined
         }
         actions={
@@ -78,7 +84,7 @@ export function MessageContext() {
                   onClick={() => reprocess.mutate()}
                   disabled={reprocess.isPending}
                 >
-                  <RotateCw /> Check again
+                  <RotateCw /> {t('messageContext.checkAgain')}
                 </Button>
               )}
             </>
@@ -103,7 +109,7 @@ export function MessageContext() {
       {!context && !contextQuery.isError && <Skeleton className="h-64" />}
       {(detailQuery.isError || contextQuery.isError) && (
         <QueryError
-          what="this conversation"
+          what={t('messageContext.thisConversation')}
           onRetry={() => {
             void detailQuery.refetch()
             void contextQuery.refetch()
@@ -113,7 +119,7 @@ export function MessageContext() {
       <ol
         ref={panel}
         tabIndex={0}
-        aria-label="Messages in this conversation"
+        aria-label={t('messageContext.messagesInConversation')}
         className="relative flex max-h-[65dvh] flex-col gap-2 overflow-y-auto rounded-lg border bg-surface-2/50 p-3 sm:p-4"
       >
         {context?.map((m) => {
@@ -135,7 +141,7 @@ export function MessageContext() {
             >
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <TypeIcon type={m.type} className="size-3.5" />
-                {m.sender_name ?? 'Unknown'}, {dateTime(m.sent_at)}
+                {m.sender_name ?? t('messageContext.unknown')}, {dateTime(m.sent_at)}
               </span>
               <span className="text-[15px]">
                 <MessageBody m={m} revealed={revealed} />
@@ -152,7 +158,7 @@ export function MessageContext() {
       {detail && (
         <section aria-labelledby="how" className="flex flex-col gap-3">
           <h2 id="how" className="text-lg font-semibold">
-            How Iris decided
+            {t('messageContext.howDecided')}
           </h2>
           <ClassificationCards items={detail.classifications} />
         </section>

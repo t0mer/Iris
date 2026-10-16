@@ -1,3 +1,4 @@
+import { he } from '../lib/he'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Chips, FilterBar } from './FilterBar'
@@ -32,13 +33,13 @@ test('on desktop the filters are inline and clearing is offered only when someth
     </FilterBar>,
   )
   expect(screen.getByLabelText('Phone')).toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: 'Clear filters' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'ניקוי סינונים' })).not.toBeInTheDocument()
   rerender(
     <FilterBar active={2} onClear={onClear}>
       {controls}
     </FilterBar>,
   )
-  await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+  await userEvent.click(screen.getByRole('button', { name: 'ניקוי סינונים' }))
   expect(onClear).toHaveBeenCalled()
 })
 
@@ -51,12 +52,12 @@ test('on a phone the filters hide behind one button that shows how many are acti
   )
   expect(screen.getByText('search box')).toBeInTheDocument() // always visible
   expect(screen.queryByLabelText('Phone')).not.toBeInTheDocument()
-  const open = screen.getByRole('button', { name: /Filters/ })
+  const open = screen.getByRole('button', { name: /סינונים/ })
   expect(open).toHaveTextContent('2')
   await userEvent.click(open)
-  expect(await screen.findByRole('dialog', { name: 'Filters' })).toBeInTheDocument()
+  expect(await screen.findByRole('dialog', { name: 'סינונים' })).toBeInTheDocument()
   expect(screen.getByLabelText('Phone')).toBeInTheDocument()
-  await userEvent.click(screen.getByRole('button', { name: 'Show results' }))
+  await userEvent.click(screen.getByRole('button', { name: 'הצגת תוצאות' }))
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 })
 
@@ -64,7 +65,7 @@ test('chips are single choice, announce which is pressed and report the choice',
   const onChange = vi.fn()
   render(
     <Chips
-      label="Status"
+      label={he('Status')}
       value=""
       options={[
         { value: '', label: 'All' },

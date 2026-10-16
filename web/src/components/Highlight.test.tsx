@@ -10,5 +10,5 @@ test('wraps only marked text and never renders HTML', () => {
 test('hidden, it shows none of the real characters', () => {
   const { container } = render(<Highlight snippet={'a \x02secret\x03 words'} />)
   expect(container).not.toHaveTextContent('secret')
-  expect(screen.getByText('Content hidden')).toBeInTheDocument()
+  expect(screen.getByText('התוכן מוסתר')).toBeInTheDocument()
 })

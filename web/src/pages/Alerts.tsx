@@ -13,14 +13,15 @@ import { Field, Select } from '../components/ui/field'
 import { Skeleton } from '../components/ui/skeleton'
 import { api } from '../lib/api'
 import { CATEGORIES } from '../lib/categories'
+import { categoryLabel, strings, t } from '../lib/i18n'
 import { useUrlState } from '../lib/urlState'
 import type { AlertPage, Instance } from '../lib/types'
 
 const STATUS = [
-  { value: '', label: 'All' },
-  { value: 'new', label: 'New' },
-  { value: 'acknowledged', label: 'Seen' },
-  { value: 'dismissed', label: 'Dismissed' },
+  { value: '', label: strings.alerts.all },
+  { value: 'new', label: strings.alerts.new },
+  { value: 'acknowledged', label: strings.alerts.seen },
+  { value: 'dismissed', label: strings.alerts.dismissed },
 ]
 const PAGE_SIZE = 25
 
@@ -55,8 +56,8 @@ export function Alerts() {
   return (
     <div className="flex flex-col gap-5">
       <PageHeader
-        title="Alerts"
-        description="Messages Iris judged harmful, newest first."
+        title={t('alerts.title')}
+        description={t('alerts.description')}
         actions={<RevealButton revealed={revealed} onToggle={toggle} />}
       />
 
@@ -65,10 +66,10 @@ export function Alerts() {
           role="status"
           className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-warning-soft p-3 text-sm text-warning"
         >
-          Alert delivery is not set up, so alerts are saved here but not sent to your WhatsApp.
+          {t('alerts.deliveryNotSetUp')}
           <Button asChild variant="link" size="sm" className="h-auto min-h-0 p-0">
             <Link to="/settings">
-              <Settings /> Set up delivery
+              <Settings /> {t('alerts.setUpDelivery')}
             </Link>
           </Button>
         </p>
@@ -79,16 +80,16 @@ export function Alerts() {
         onClear={clear}
         leading={
           <Chips
-            label="Status"
+            label={t('alerts.status')}
             value={status}
             options={STATUS}
             onChange={(v) => update({ status: v })}
           />
         }
       >
-        <Field label="Phone" className="md:w-44">
+        <Field label={t('alerts.phone')} className="md:w-44">
           <Select value={kid} onChange={(e) => update({ instance_id: e.target.value })}>
-            <option value="">All phones</option>
+            <option value="">{t('alerts.allPhones')}</option>
             {instances?.map((i) => (
               <option key={i.id} value={i.id}>
                 {i.kid_name}
@@ -96,11 +97,13 @@ export function Alerts() {
             ))}
           </Select>
         </Field>
-        <Field label="Category" className="md:w-52">
+        <Field label={t('alerts.category')} className="md:w-52">
           <Select value={category} onChange={(e) => update({ category: e.target.value })}>
-            <option value="">Any category</option>
+            <option value="">{t('alerts.anyCategory')}</option>
             {CATEGORIES.map((c) => (
-              <option key={c}>{c}</option>
+              <option key={c} value={c}>
+                {categoryLabel(c)}
+              </option>
             ))}
           </Select>
         </Field>
@@ -115,8 +118,7 @@ export function Alerts() {
           ))}
         {isError && (
           <li className="p-4 text-sm text-danger" role="alert">
-            Could not load alerts. Reload the page; if it keeps failing, check the Jobs page and the
-            server log.
+            {t('alerts.couldNotLoad')}
           </li>
         )}
         {data?.items.map((a) => (
@@ -127,19 +129,18 @@ export function Alerts() {
             {active > 0 ? (
               <EmptyState
                 icon={BellRing}
-                title="No alerts match these filters"
+                title={t('alerts.noneMatch')}
                 action={
                   <Button variant="outline" onClick={clear}>
-                    Clear filters
+                    {t('filterBar.clearFilters')}
                   </Button>
                 }
               >
-                Try a different status, phone or category.
+                {t('alerts.noneMatchBody')}
               </EmptyState>
             ) : (
-              <EmptyState icon={BellRing} title="No alerts yet">
-                When a message needs your attention, Iris lists it here and sends it to your
-                WhatsApp.
+              <EmptyState icon={BellRing} title={t('alerts.noneYet')}>
+                {t('alerts.noneYetBody')}
               </EmptyState>
             )}
           </li>
@@ -150,7 +151,7 @@ export function Alerts() {
           page={page}
           pageSize={PAGE_SIZE}
           total={data.total}
-          noun={['alert', 'alerts']}
+          noun={strings.alerts.noun}
           onPage={(p) => update({ page: String(p) })}
         />
       )}

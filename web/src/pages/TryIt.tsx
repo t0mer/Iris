@@ -10,6 +10,7 @@ import { Field, Input, Textarea } from '../components/ui/field'
 import { api, ApiError } from '../lib/api'
 import { bandFor, verdictFor, type Band, type Pair, type Verdict } from '../lib/bands'
 import { cn } from '../lib/cn'
+import { categoryLabel, t } from '../lib/i18n'
 import { draftPair, overridesFrom, validPair, type Draft } from '../lib/thresholds'
 import type { ThresholdRow } from '../lib/types'
 
@@ -24,24 +25,24 @@ interface Result {
 }
 
 const BAND: Record<Band, { label: string; tone: 'success' | 'warning' | 'danger' }> = {
-  safe: { label: 'Fine', tone: 'success' },
-  inconclusive: { label: 'Unclear', tone: 'warning' },
-  harmful: { label: 'Harmful', tone: 'danger' },
+  safe: { label: t('tryIt.fine'), tone: 'success' },
+  inconclusive: { label: t('tryIt.needsLook'), tone: 'warning' },
+  harmful: { label: t('tryIt.harmful'), tone: 'danger' },
 }
 const VERDICT: Record<Verdict, { title: string; text: string; tone: string }> = {
   safe: {
-    title: 'Fine',
-    text: 'Iris would let this through.',
+    title: t('tryIt.fine'),
+    text: t('tryIt.fineText'),
     tone: 'border-success/40 bg-success-soft',
   },
   review: {
-    title: 'Needs a look',
-    text: 'Iris would put this in the review queue.',
+    title: t('tryIt.needsLookTitle'),
+    text: t('tryIt.needsLookText'),
     tone: 'border-warning/40 bg-warning-soft',
   },
   harmful: {
-    title: 'Harmful',
-    text: 'Iris would alert you.',
+    title: t('tryIt.harmful'),
+    text: t('tryIt.harmfulText'),
     tone: 'border-danger/40 bg-danger-soft',
   },
 }
@@ -67,7 +68,7 @@ export function TryIt() {
       }),
     // The draft stays: re-checking another phrase should run against the same tuning.
     onSuccess: setResult,
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not check the text.'),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('tryIt.checkFailed')),
   })
 
   const save = useMutation({
@@ -77,20 +78,20 @@ export function TryIt() {
         body: JSON.stringify({ settings: { 'classification.thresholds': overrides } }),
       }),
     onSuccess: async () => {
-      toast.success('Thresholds saved.')
+      toast.success(t('tryIt.thresholdsSaved'))
       // What was previewed is now what is saved; keep the result on screen without a new check.
       setResult((r) =>
         r
           ? {
               ...r,
-              thresholds: r.thresholds.map((t) => ({ ...t, ...draftPair(t, draft) })),
+              thresholds: r.thresholds.map((th) => ({ ...th, ...draftPair(th, draft) })),
             }
           : r,
       )
       setDraft({})
       await qc.invalidateQueries()
     },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not save thresholds.'),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('tryIt.saveFailed')),
   })
 
   const current = useMemo(() => {
@@ -134,10 +135,7 @@ export function TryIt() {
 
   return (
     <div className="flex max-w-4xl flex-col gap-6">
-      <PageHeader
-        title="Try it"
-        description="Type a message to see how Iris would classify it, then adjust the thresholds and watch the result change."
-      />
+      <PageHeader title={t('tryIt.title')} description={t('tryIt.description')} />
       <form
         className="flex flex-col gap-4 rounded-lg border bg-surface p-4"
         onSubmit={(e) => {
@@ -145,13 +143,13 @@ export function TryIt() {
           if (!text.trim()) return
           const lines = context.split('\n').filter((l) => l.trim())
           if (lines.length > 20 || lines.some((l) => l.length > 1000)) {
-            toast.error('Use at most 20 earlier messages of up to 1,000 characters each.')
+            toast.error(t('tryIt.tooManyLines'))
             return
           }
           check.mutate()
         }}
       >
-        <Field label="Message to check">
+        <Field label={t('tryIt.messageToCheck')}>
           <Textarea
             dir="auto"
             rows={3}
@@ -160,10 +158,7 @@ export function TryIt() {
             onChange={(e) => setText(e.target.value)}
           />
         </Field>
-        <Field
-          label="Earlier messages in the chat (optional)"
-          hint="One per line, oldest first (up to 20). Iris uses them for the second look when the first check is unclear."
-        >
+        <Field label={t('tryIt.earlierMessages')} hint={t('tryIt.earlierHint')}>
           <Textarea
             dir="auto"
             rows={3}
@@ -173,11 +168,9 @@ export function TryIt() {
         </Field>
         <div className="flex flex-wrap items-center gap-3">
           <Button type="submit" disabled={!text.trim() || check.isPending}>
-            <FlaskConical /> {check.isPending ? 'Checking…' : 'Check'}
+            <FlaskConical /> {check.isPending ? t('tryIt.checking') : t('tryIt.check')}
           </Button>
-          <p className="text-xs text-muted-foreground">
-            The text is sent to OpenAI for moderation and is not stored by Iris.
-          </p>
+          <p className="text-xs text-muted-foreground">{t('tryIt.notStored')}</p>
         </div>
       </form>
 
@@ -191,7 +184,7 @@ export function TryIt() {
             <ul className="mt-1 flex flex-wrap gap-2 text-sm">
               {stages.map((s) => (
                 <li key={s.stage} className="flex items-center gap-1.5">
-                  {s.stage === 'moderation' ? 'First check' : 'Second look'}
+                  {s.stage === 'moderation' ? t('tryIt.firstCheck') : t('tryIt.secondLook')}
                   <Badge tone={BAND[s.band].tone}>{BAND[s.band].label}</Badge>
                 </li>
               ))}
@@ -206,12 +199,9 @@ export function TryIt() {
             <div className="flex flex-wrap items-end justify-between gap-2">
               <div>
                 <h2 id="th" className="text-lg font-semibold">
-                  Thresholds
+                  {t('tryIt.thresholds')}
                 </h2>
-                <p className="text-sm text-muted-foreground">
-                  A score at or above <b>needs a look</b> is unclear; at or above <b>harmful</b> it
-                  alerts you. Changes here are only a preview until you save.
-                </p>
+                <p className="text-sm text-muted-foreground">{t('tryIt.thresholdsExplain')}</p>
               </div>
               <div className="flex gap-2">
                 <Button
@@ -220,37 +210,30 @@ export function TryIt() {
                   disabled={!changedFromSaved}
                   onClick={() => setDraft({})}
                 >
-                  <RotateCcw /> Reset to saved
+                  <RotateCcw /> {t('tryIt.resetToSaved')}
                 </Button>
                 <Button
                   type="button"
                   disabled={!changedFromSaved || invalid || save.isPending}
                   onClick={() => {
                     if (overrides === 'invalid') {
-                      toast.error(
-                        'Thresholds must be numbers from 0 to 1, with "needs a look" lower than "harmful".',
-                      )
+                      toast.error(t('tryIt.invalidThresholds'))
                       return
                     }
                     save.mutate(overrides ?? {})
                   }}
                 >
-                  <Save /> Save these thresholds
+                  <Save /> {t('tryIt.saveThresholds')}
                 </Button>
               </div>
             </div>
             {invalid && (
               <p role="status" className="text-sm text-danger">
-                Fix the highlighted values: numbers from 0 to 1, with &ldquo;needs a look&rdquo;
-                lower than &ldquo;harmful&rdquo;. The verdict above still uses the saved values for
-                those rows.
+                {t('tryIt.fixHighlighted')}
               </p>
             )}
             {stages.length > 1 && (
-              <p className="text-xs text-muted-foreground">
-                Each row shows the first check on top and the second look below it. Orange marks
-                &ldquo;needs a look&rdquo;, red marks &ldquo;harmful&rdquo;.
-              </p>
+              <p className="text-xs text-muted-foreground">{t('tryIt.rowsExplain')}</p>
             )}
             <ul className="flex flex-col divide-y rounded-lg border bg-surface">
               {rows.map((r) => {
@@ -262,7 +245,7 @@ export function TryIt() {
                     key={r.category}
                     className="grid grid-cols-1 items-center gap-2 p-3 sm:grid-cols-[11rem_1fr_9rem_9rem]"
                   >
-                    <span className="text-sm font-medium">{r.category}</span>
+                    <span className="text-sm font-medium">{categoryLabel(r.category)}</span>
                     <div className="flex flex-col gap-1">
                       {stages.map((s) => {
                         const v = s.scores[r.category] ?? 0
@@ -300,7 +283,7 @@ export function TryIt() {
                         )
                       })}
                     </div>
-                    <Field label="Needs a look">
+                    <Field label={t('tryIt.needsLookField')}>
                       <Input
                         className="tabular"
                         type="number"
@@ -308,12 +291,12 @@ export function TryIt() {
                         min={0}
                         max={1}
                         value={e?.low ?? String(r.low)}
-                        aria-label={`${r.category} needs a look`}
+                        aria-label={`${categoryLabel(r.category)}, ${t('tryIt.needsLookField')}`}
                         aria-invalid={!ok}
                         onChange={(ev) => edit(r, 'low', ev.target.value)}
                       />
                     </Field>
-                    <Field label="Harmful">
+                    <Field label={t('tryIt.harmfulField')}>
                       <Input
                         className="tabular"
                         type="number"
@@ -321,7 +304,7 @@ export function TryIt() {
                         min={0}
                         max={1}
                         value={e?.high ?? String(r.high)}
-                        aria-label={`${r.category} harmful`}
+                        aria-label={`${categoryLabel(r.category)}, ${t('tryIt.harmfulField')}`}
                         aria-invalid={!ok}
                         onChange={(ev) => edit(r, 'high', ev.target.value)}
                       />
@@ -331,9 +314,9 @@ export function TryIt() {
               })}
             </ul>
             <p className="text-sm text-muted-foreground">
-              Every threshold is also listed under{' '}
+              {t('tryIt.everyThresholdListed')}{' '}
               <Link className="font-medium text-primary" to="/settings">
-                Settings
+                {t('tryIt.settings')}
               </Link>
               .
             </p>

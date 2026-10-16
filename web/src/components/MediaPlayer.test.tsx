@@ -12,7 +12,7 @@ const base: KeptMedia = {
 
 test('an image is shown from Iris itself, never from the storage', () => {
   render(<MediaPlayer media={base} revealed />)
-  const img = screen.getByRole('img', { name: /photo kept/ })
+  const img = screen.getByRole('img', { name: /התמונה שנשמרה/ })
   expect(img).toHaveAttribute('src', '/api/media/5')
 })
 
@@ -33,26 +33,26 @@ test('a type browsers cannot play is offered as a download', () => {
       revealed
     />,
   )
-  const link = screen.getByRole('link', { name: /Download the voice note \(2 KB\)/ })
+  const link = screen.getByRole('link', { name: /הורדת הודעה קולית \(2 ק״ב\)/ })
   expect(link).toHaveAttribute('href', '/api/media/5')
   expect(link).toHaveAttribute('download')
 })
 
 test('the badge names the kind and the size', () => {
   render(<MediaBadge media={{ ...base, kind: 'video', size_bytes: 5 * 1024 * 1024 }} />)
-  expect(screen.getByText('Video kept')).toHaveAttribute('title', 'Video kept, 5.0 MB')
+  expect(screen.getByText('וידאו נשמרה')).toHaveAttribute('title', 'וידאו נשמרה, 5.0 מ״ב')
 })
 
 test('a file that cannot be loaded says so instead of showing a broken picture', () => {
   render(<MediaPlayer media={base} revealed />)
-  fireEvent.error(screen.getByRole('img', { name: /photo kept/ }))
-  expect(screen.getByRole('alert')).toHaveTextContent('could not be loaded')
+  fireEvent.error(screen.getByRole('img', { name: /התמונה שנשמרה/ }))
+  expect(screen.getByRole('alert')).toHaveTextContent('לא ניתן היה לטעון')
   expect(screen.queryByRole('img')).not.toBeInTheDocument()
 })
 
 test('hidden media is not requested at all', () => {
   const { container } = render(<MediaPlayer media={base} />)
-  expect(screen.getByText('Photo hidden')).toBeInTheDocument()
+  expect(screen.getByText('תמונה מוסתרת')).toBeInTheDocument()
   expect(container.querySelector('img, audio, video, source')).toBeNull()
   expect(container.innerHTML).not.toContain('/api/media/5')
 })
@@ -61,6 +61,6 @@ test('a hidden voice note says so and loads nothing', () => {
   const { container } = render(
     <MediaPlayer media={{ ...base, kind: 'audio', content_type: 'audio/ogg' }} />,
   )
-  expect(screen.getByText('Voice note hidden')).toBeInTheDocument()
+  expect(screen.getByText('הודעה קולית מוסתרת')).toBeInTheDocument()
   expect(container.querySelector('audio')).toBeNull()
 })
