@@ -178,7 +178,7 @@ IRIS_ADMIN_USERNAME=admin IRIS_ADMIN_PASSWORD=change-me IRIS_DATA_DIR=./data \
      channel ID is negative, and a public channel can also be given as `@channelname`. Telegram only lets a
      bot write to a chat that has messaged it first.
 
-![Settings: alerts via WhatsApp](assets/screenshots/settings-alerts.png)
+![Settings: alerts via WhatsApp (OpenWA)](assets/screenshots/settings-alerts.png)
 
 ![Settings: alerts via Telegram](assets/screenshots/settings-alerts-telegram.png)
 
