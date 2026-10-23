@@ -120,3 +120,48 @@ def test_other_events_are_not_changes(name: str) -> None:
 def test_change_without_an_id_is_rejected() -> None:
     with pytest.raises(PayloadError):
         parse_change({"event": "message.revoked", "data": {"id": "true_x_y"}})
+
+
+@pytest.mark.parametrize("bad_id", ["bad", 123, {}, None])
+def test_bad_quote_does_not_drop_the_message(bad_id: Any) -> None:
+    raw = load("text_received_mixed")
+    raw["data"]["quotedMessage"] = {"id": bad_id}
+    message = parse_event(raw)
+    assert message and message.text and message.quoted_wa_message_id is None
+
+
+def test_empty_edit_is_preserved() -> None:
+    raw = load("message_edited")
+    raw["data"]["body"] = ""
+    change = parse_change(raw)
+    assert change and change.new_text == ""
+
+
+@pytest.mark.parametrize(
+    "raw_type,normalized",
+    [("poll", "poll"), ("poll_creation", "poll"), ("chat", "text"), ("ptt", "voice")],
+)
+def test_gateway_aliases_and_polls_keep_original_type(raw_type: str, normalized: str):
+    raw = load("text_received_mixed")
+    raw["data"]["type"] = raw_type
+    raw["data"]["body"] = "מה עושים היום?"
+    message = parse_event(raw)
+    assert message and message.type == normalized and message.raw_type == raw_type
+    assert message.text == "מה עושים היום?"
+
+
+def test_poll_question_and_options_are_preserved_for_search_and_safety_checks():
+    raw = load("text_received_mixed")
+    raw["data"]["type"] = "poll"
+    raw["data"]["poll"] = {
+        "question": "לאן הולכים?",
+        "options": ["ים", {"name": "פארק"}],
+        "allowMultipleAnswers": True,
+    }
+    m = parse_event(raw)
+    assert m and m.type == "poll"
+    assert m.text == "לאן הולכים?\n• ים\n• פארק\nMultiple answers: yes"
+    assert m.diagnostics["has_poll_options"] is True
+    raw["data"]["poll"]["options"] = ["valid", None]
+    with pytest.raises(PayloadError):
+        parse_event(raw)

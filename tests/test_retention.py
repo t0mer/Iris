@@ -22,6 +22,9 @@ async def seed(c: Any, token: str, hashes: list[str], ages_days: list[int]) -> l
         b["data"]["timestamp"] = int((NOW - timedelta(days=age)).timestamp())
         await post(c, token, json.dumps(b).encode())
     async with c.app.state.session_factory() as s:
+        await s.execute(update(Message).values(status="done"))
+        await s.execute(update(Job).values(status="done"))
+        await s.commit()
         return list((await s.execute(select(Message.id).order_by(Message.id))).scalars())
 
 
@@ -165,3 +168,43 @@ async def test_old_failed_jobs_and_empty_chats_are_removed(app_client: Any) -> N
         await s.commit()
     res = await run_retention(app_client.app.state.session_factory, NOW)
     assert res["chats"] == 1 and await count(app_client, Chat) == 0
+
+
+@pytest.mark.parametrize("safety_mode", ["true", "false"])
+async def test_local_retention_expires_failed_and_skipped_but_preserves_review_and_active(
+    app_client: Any, monkeypatch: pytest.MonkeyPatch, safety_mode: str
+) -> None:
+    from app.config import get_settings
+
+    monkeypatch.setenv("IRIS_LOCAL_SAFETY_MODE", safety_mode)
+    get_settings.cache_clear()
+    _, token = await make_instance(app_client)
+    ids = await seed(app_client, token, ["failed", "skipped", "review", "active"], [200] * 4)
+    factory = app_client.app.state.session_factory
+    async with factory() as db:
+        await db.execute(update(Job).values(status="done"))
+        for mid, status, verdict in zip(
+            ids, ["failed", "skipped", "done", "failed"], [None, None, "review", None], strict=True
+        ):
+            await db.execute(
+                update(Message).where(Message.id == mid).values(status=status, verdict=verdict)
+            )
+        db.add(Job(type="process_message", status="queued", payload={"message_id": ids[-1]}))
+        await db.commit()
+    result = await run_retention(factory, NOW)
+    assert result["messages"] == 2
+    async with factory() as db:
+        assert list((await db.scalars(select(Message.id).order_by(Message.id))).all()) == ids[2:]
+
+
+async def test_hour_retention_overrides_days_and_keeps_review(app_client):
+    _, token = await make_instance(app_client)
+    ids = await seed(app_client, token, ["H1", "H2"], [1, 1])
+    async with app_client.app.state.session_factory() as db:
+        await set_setting(db, "retention.message_hours", 2)
+        await db.execute(update(Message).where(Message.id == ids[1]).values(verdict="review"))
+        await db.commit()
+    result = await run_retention(app_client.app.state.session_factory, NOW)
+    assert result["messages"] == 1
+    async with app_client.app.state.session_factory() as db:
+        assert list(await db.scalars(select(Message.id))) == [ids[1]]

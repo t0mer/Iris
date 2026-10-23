@@ -1,5 +1,6 @@
 import {
   Activity,
+  BrainCircuit,
   FlaskConical,
   BellRing,
   LayoutDashboard,
@@ -36,6 +37,13 @@ export const NAV: NavItem[] = [
     icon: ListChecks,
     group: 'watch',
     badge: (s) => s.review_queue,
+  },
+  {
+    to: '/iris-review',
+    label: 'IrisReview',
+    icon: BrainCircuit,
+    group: 'watch',
+    badge: (s) => s.iris_review_queue ?? 0,
   },
   { to: '/messages', label: 'Messages', icon: MessagesSquare, group: 'watch' },
   { to: '/chats', label: 'Chats', icon: Users, group: 'watch' },

@@ -42,7 +42,8 @@ async def test_ranges_are_inclusive_like_http(store: LocalStore, tmp_path: Path)
 async def test_files_are_private_and_written_atomically(store: LocalStore, tmp_path: Path) -> None:
     await store.put("media/2/a.jpg", _src(tmp_path), "image/jpeg")
     path = store.root / "media/2/a.jpg"
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert not list(store.root.rglob("*.part"))
 
 
@@ -59,7 +60,12 @@ async def test_a_key_cannot_escape_the_folder(store: LocalStore, tmp_path: Path)
     outside = tmp_path / "outside"
     outside.mkdir()
     store.root.mkdir()
-    os.symlink(outside, store.root / "link")  # a symlink inside the folder must not lead out
+    try:
+        os.symlink(outside, store.root / "link")
+    except OSError as exc:
+        if os.name == "nt" and getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows requires symlink privileges for this escape test")
+        raise
     with pytest.raises(MediaStoreError):
         await store.put("link/x.jpg", _src(tmp_path), "image/jpeg")
     for key in ("../outside/x.jpg", "media/../../outside/x.jpg"):

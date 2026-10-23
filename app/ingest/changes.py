@@ -37,7 +37,7 @@ async def _notify_parent(db: AsyncSession, message: Message, kind: str) -> None:
         await db.execute(
             select(Job.id).where(
                 Job.type == NOTIFY_JOB,
-                Job.status == "queued",
+                Job.status.in_(("queued", "running")),
                 Job.payload["alert_id"].as_integer() == alert.id,
                 Job.payload["kind"].as_string() == kind,
             )
@@ -70,6 +70,9 @@ async def apply_change(db: AsyncSession, change: MessageChange) -> str:
         await db.commit()
         return "revoked"
 
+    if message.revoked_at is not None:
+        return "ignored"
+
     new_text = change.new_text
     if new_text is None or new_text == message.text:
         return "duplicate"
@@ -93,7 +96,7 @@ async def apply_change(db: AsyncSession, change: MessageChange) -> str:
     # still being unredacted; the write lock held from here to the commit keeps it that way.
     res = await db.execute(
         update(Message)
-        .where(Message.id == message.id, Message.redacted.is_(False))
+        .where(Message.id == message.id, Message.redacted.is_(False), Message.revoked_at.is_(None))
         .values(text=new_text, edited_at=now, status="pending")
         .execution_options(synchronize_session=False)
     )

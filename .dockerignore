@@ -18,3 +18,10 @@ data
 *.md
 !README.md
 CLAUDE.md
+
+# Private local artifacts and temporary test runs
+.local/
+
+# Tests and private frontend reports are never part of the runtime image
+web/tests/
+web/.local/

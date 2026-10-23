@@ -1,6 +1,14 @@
 name: CI
 
 on:
+  workflow_call:
+    inputs:
+      image_version:
+        type: string
+        default: ci
+  workflow_dispatch:
+  schedule:
+    - cron: '25 5 * * 2'
   pull_request:
   push:
     branches: [main]
@@ -9,25 +17,111 @@ permissions:
   contents: read
 
 jobs:
-  python:
+  mcp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - run: uv venv --python 3.12 .local/mcp-venv
+      - run: uv pip install --python .local/mcp-venv/bin/python -r scripts/mcp-requirements.txt pytest pytest-asyncio respx
+      - run: .local/mcp-venv/bin/python -m pytest scripts/test_mcp_bridge.py
+
+  learning-training:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - run: uv venv --python 3.12 .local/training-venv
+      - name: Install isolated CPU training dependencies
+        run: >-
+          uv pip install --python .local/training-venv/bin/python
+          --index https://download.pytorch.org/whl/cpu
+          --index-strategy unsafe-best-match
+          -r scripts/learning-training-requirements.txt
+      - run: .local/training-venv/bin/python scripts/smoke_learning_training.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: synthetic-training-evaluation
+          path: .local/learning-training-smoke/adapter/evaluation-report.json
+          include-hidden-files: true
+
+  automation:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
+      - run: uv run --with pyyaml python scripts/validate_automation.py
+      - name: Validate GitHub Actions syntax
+        env:
+          ACTIONLINT_VERSION: '1.7.12'
+        run: |
+          set -euo pipefail
+          mkdir -p .local/actionlint
+          cd .local/actionlint
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+          curl -fsSLO "$base/$archive"
+          curl -fsSLo checksums.txt "$base/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
+          grep " $archive$" checksums.txt | sha256sum --check
+          tar -xzf "$archive"
+          cd ../..
+          .local/actionlint/actionlint -shellcheck='' -pyflakes=''
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate deployment examples without starting containers
+        run: python scripts/validate_compose.py
+
+  python:
+    # Keep media tooling stable during the Ubuntu 26 runner rollout.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
       - name: Install ffmpeg (media tests)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+        timeout-minutes: 5
+        run: |
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            # The Azure mirror can trickle media dependencies for many minutes.
+            for source in /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
+              if [ -f "$source" ]; then
+                sudo sed -i 's|http[s]*://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' "$source"
+              fi
+            done
+            sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+            sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y --no-install-recommends ffmpeg
+          fi
+          ffmpeg -version
+          ffprobe -version
+      - run: uv lock --check
       - run: uv sync --frozen
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy
-      - run: uv run pytest -q
+      - name: Backend regression tests
+        timeout-minutes: 20
+        run: uv run pytest -v -o faulthandler_timeout=90 --junitxml=.local/test-results/backend.xml
+      - name: Save backend test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-${{ github.job }}
+          path: .local/test-results/*.xml
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
 
   postgres:
     # The whole suite against PostgreSQL, then a copy from SQLite into a second PostgreSQL database.
-    runs-on: ubuntu-latest
+    # Keep media tooling stable during the Ubuntu 26 runner rollout.
+    runs-on: ubuntu-24.04
     services:
       postgres:
-        image: postgres:16
+        image: mirror.gcr.io/library/postgres:16
         env:
           POSTGRES_PASSWORD: pw
           POSTGRES_DB: iris
@@ -41,23 +135,49 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
       - name: Install ffmpeg (media tests)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+        timeout-minutes: 5
+        run: |
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            # The Azure mirror can trickle media dependencies for many minutes.
+            for source in /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
+              if [ -f "$source" ]; then
+                sudo sed -i 's|http[s]*://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' "$source"
+              fi
+            done
+            sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+            sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y --no-install-recommends ffmpeg
+          fi
+          ffmpeg -version
+          ffprobe -version
+      - run: uv lock --check
       - run: uv sync --frozen
-      - run: uv run pytest -q
+      - name: Backend regression tests
+        timeout-minutes: 20
+        run: uv run pytest -v -o faulthandler_timeout=90 --junitxml=.local/test-results/backend.xml
       - name: Copy from SQLite into PostgreSQL
         env:
           IRIS_DATABASE_URL: ""
           IRIS_TEST_PG_URL: postgresql://postgres:pw@127.0.0.1:5432/iris_copy
         run: |
           PGPASSWORD=pw psql -h 127.0.0.1 -U postgres -c 'CREATE DATABASE iris_copy'
-          uv run pytest -m integration tests/test_db_copy_real.py -q
+          uv run pytest -m integration tests/test_db_copy_real.py -q --junitxml=.local/test-results/database-copy.xml
+      - name: Save backend test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-${{ github.job }}
+          path: .local/test-results/*.xml
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
 
   mysql:
     # The whole suite against MySQL, then a copy from SQLite into a second MySQL database.
-    runs-on: ubuntu-latest
+    # Keep media tooling stable during the Ubuntu 26 runner rollout.
+    runs-on: ubuntu-24.04
     services:
       mysql:
-        image: mysql:8
+        image: mirror.gcr.io/library/mysql:8
         env:
           MYSQL_ROOT_PASSWORD: pw
           MYSQL_DATABASE: iris
@@ -71,16 +191,41 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
       - name: Install ffmpeg (media tests)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+        timeout-minutes: 5
+        run: |
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            # The Azure mirror can trickle media dependencies for many minutes.
+            for source in /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
+              if [ -f "$source" ]; then
+                sudo sed -i 's|http[s]*://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' "$source"
+              fi
+            done
+            sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+            sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y --no-install-recommends ffmpeg
+          fi
+          ffmpeg -version
+          ffprobe -version
+      - run: uv lock --check
       - run: uv sync --frozen
-      - run: uv run pytest -q
+      - name: Backend regression tests
+        timeout-minutes: 20
+        run: uv run pytest -v -o faulthandler_timeout=90 --junitxml=.local/test-results/backend.xml
       - name: Copy from SQLite into MySQL
         env:
           IRIS_DATABASE_URL: ""
           IRIS_TEST_MYSQL_URL: mysql://root:pw@127.0.0.1:3306/iris_copy
         run: |
           mysql -h 127.0.0.1 -uroot -ppw -e 'CREATE DATABASE iris_copy CHARACTER SET utf8mb4'
-          uv run pytest -m integration tests/test_db_copy_real.py -q
+          uv run pytest -m integration tests/test_db_copy_real.py -q --junitxml=.local/test-results/database-copy.xml
+      - name: Save backend test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-${{ github.job }}
+          path: .local/test-results/*.xml
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
 
   web:
     runs-on: ubuntu-latest
@@ -97,7 +242,16 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run format:check
-      - run: npm test
+      - run: npm run test:ci
+      - name: Save frontend test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend
+          path: web/.local/test-results/*.xml
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
       - run: npm run build
 
   security:
@@ -119,6 +273,8 @@ jobs:
     # Build both architectures without pushing, so arm64 breakage is caught before merge.
     runs-on: ubuntu-latest
     needs: [python, web]
+    env:
+      IMAGE_VERSION: ${{ inputs.image_version || 'ci' }}
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-qemu-action@v4
@@ -130,6 +286,9 @@ jobs:
           platforms: linux/amd64
           load: true
           tags: iris:ci
+          build-args: |
+            VERSION=${{ env.IMAGE_VERSION }}
+            REVISION=${{ github.sha }}
           cache-from: type=gha
       - name: Smoke test
         run: |
@@ -143,6 +302,7 @@ jobs:
             sleep 2
           done
           curl -fsS http://127.0.0.1:8080/api/health
+          docker exec iris .venv/bin/python -c 'import sys; from app.version import VERSION; assert VERSION == sys.argv[1], (VERSION, sys.argv[1])' "$IMAGE_VERSION"
           docker exec iris ffmpeg -version | head -1
           docker rm -f iris
       - name: Build amd64 + arm64 (no push)
@@ -151,5 +311,8 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: false
+          build-args: |
+            VERSION=${{ env.IMAGE_VERSION }}
+            REVISION=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

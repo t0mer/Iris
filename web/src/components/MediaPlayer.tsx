@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { Download, FileX, Film, Image as ImageIcon, Mic } from 'lucide-react'
 import { useState } from 'react'
 import { fileSize } from '../lib/format'
@@ -12,8 +13,14 @@ const LABEL = { image: 'Photo', audio: 'Voice note', video: 'Video' } as const
 export function MediaBadge({ media }: { media: KeptMedia }) {
   const Icon = ICON[media.kind]
   return (
-    <Badge tone="info" title={`${LABEL[media.kind]} kept, ${fileSize(media.size_bytes)}`}>
-      <Icon /> {LABEL[media.kind]} kept
+    <Badge
+      tone="info"
+      title={t('{value0} kept, {value1}', {
+        value0: t(LABEL[media.kind]),
+        value1: fileSize(media.size_bytes),
+      })}
+    >
+      <Icon /> {t(LABEL[media.kind])} {t('kept')}
     </Badge>
   )
 }
@@ -37,22 +44,23 @@ export function MediaPlayer({
     const Icon = ICON[media.kind]
     return (
       <div className="flex min-h-32 w-full max-w-md items-center justify-center gap-2 rounded-lg border bg-surface-2 p-6 text-sm text-muted-foreground">
-        <Icon className="size-5" aria-hidden /> {LABEL[media.kind]} hidden
+        <Icon className="size-5" aria-hidden /> {t(LABEL[media.kind])} {t('hidden')}
       </div>
     )
   }
   if (failed)
     return (
       <p role="alert" className="flex items-center gap-2 text-sm text-muted-foreground">
-        <FileX className="size-4" /> This file could not be loaded. It may have been deleted from
-        the storage.
+        <FileX className="size-4" />{' '}
+        {t('This file could not be loaded. It may have been deleted from the storage.')}
       </p>
     )
   if (!media.inline)
     return (
       <Button asChild variant="outline" className="w-fit">
         <a href={src} download>
-          <Download /> Download the {LABEL[media.kind].toLowerCase()} ({fileSize(media.size_bytes)})
+          <Download /> {t('Download the')} {t(LABEL[media.kind].toLowerCase())} (
+          {fileSize(media.size_bytes)})
         </a>
       </Button>
     )
