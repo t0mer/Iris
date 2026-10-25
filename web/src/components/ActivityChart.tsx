@@ -1,13 +1,13 @@
+import { t } from '../lib/i18n'
 import { useEffect, useState } from 'react'
 import { cn } from '../lib/cn'
 import { shortDate } from '../lib/format'
-import { strings, t } from '../lib/i18n'
 import type { DayActivity } from '../lib/types'
 
 const SERIES = [
-  { key: 'safe', label: strings.activityChart.fine, color: 'var(--chart-safe)' },
-  { key: 'review', label: strings.activityChart.worthLook, color: 'var(--chart-review)' },
-  { key: 'harmful', label: strings.activityChart.harmful, color: 'var(--chart-harmful)' },
+  { key: 'safe', label: 'Fine', color: 'var(--chart-safe)' },
+  { key: 'review', label: 'Worth a look', color: 'var(--chart-review)' },
+  { key: 'harmful', label: 'Harmful', color: 'var(--chart-harmful)' },
 ] as const
 
 const GAP = 2 // surface-coloured spacer between stacked segments
@@ -54,12 +54,11 @@ export function ActivityChart({ days }: { days: DayActivity[] }) {
   const y = (v: number) => PAD.top + plotH - (v / max) * plotH
   const labelEvery = step < 34 ? 3 : step < 52 ? 2 : 1
   const peak = days.reduce((a, d) => (total(d) > total(a) ? d : a), days[0])
-  const summary = strings.activityChart.summary(
-    days.length,
-    shortDate(peak.date),
-    total(peak),
-    peak.harmful,
-  )
+  const summary = `Messages per day over the last ${days.length} days. ${
+    total(peak)
+      ? `Busiest day ${shortDate(peak.date)} with ${total(peak)} messages, ${peak.harmful} harmful.`
+      : 'No messages yet.'
+  }`
   const hover = active === null ? null : days[active]
 
   return (
@@ -69,7 +68,7 @@ export function ActivityChart({ days }: { days: DayActivity[] }) {
           {SERIES.map((s) => (
             <li key={s.key} className="flex items-center gap-1.5">
               <span aria-hidden className="size-3 rounded-[3px]" style={{ background: s.color }} />
-              {s.label}
+              {t(s.label)}
             </li>
           ))}
         </ul>
@@ -78,7 +77,7 @@ export function ActivityChart({ days }: { days: DayActivity[] }) {
           aria-pressed={table}
           onClick={() => setTable((t) => !t)}
         >
-          {table ? t('activityChart.showChart') : t('activityChart.showTable')}
+          {table ? t('Show chart') : t('Show as table')}
         </button>
       </div>
 
@@ -88,16 +87,14 @@ export function ActivityChart({ days }: { days: DayActivity[] }) {
             <caption className="sr-only">{summary}</caption>
             <thead>
               <tr className="text-start text-muted-foreground">
-                <th className="py-1.5 pe-3 text-start font-medium">{t('activityChart.day')}</th>
+                <th className="py-1.5 pe-3 text-start font-medium">{t('Day')}</th>
                 {SERIES.map((s) => (
                   <th key={s.key} className="px-3 py-1.5 text-end font-medium">
-                    {s.label}
+                    {t(s.label)}
                   </th>
                 ))}
-                <th className="px-3 py-1.5 text-end font-medium">
-                  {t('activityChart.notChecked')}
-                </th>
-                <th className="ps-3 py-1.5 text-end font-medium">{t('activityChart.alerts')}</th>
+                <th className="px-3 py-1.5 text-end font-medium">{t('Not checked')}</th>
+                <th className="ps-3 py-1.5 text-end font-medium">{t('Alerts')}</th>
               </tr>
             </thead>
             <tbody>
@@ -165,11 +162,14 @@ export function ActivityChart({ days }: { days: DayActivity[] }) {
                   key={d.date}
                   tabIndex={0}
                   role="img"
-                  aria-label={strings.activityChart.dayDetail(
-                    shortDate(d.date),
-                    d.safe,
-                    d.review,
-                    d.harmful,
+                  aria-label={t(
+                    '{value0}: {value1} fine, {value2} worth a look, {value3} harmful',
+                    {
+                      value0: shortDate(d.date),
+                      value1: d.safe,
+                      value2: d.review,
+                      value3: d.harmful,
+                    },
                   )}
                   onMouseEnter={() => setActive(i)}
                   onMouseLeave={() => setActive(null)}
@@ -241,19 +241,19 @@ export function ActivityChart({ days }: { days: DayActivity[] }) {
                       className="size-2.5 rounded-[2px]"
                       style={{ background: s.color }}
                     />
-                    {s.label}
+                    {t(s.label)}
                   </span>
                   <span className="tabular">{hover[s.key]}</span>
                 </p>
               ))}
               {hover.other > 0 && (
                 <p className="mt-1 flex justify-between text-muted-foreground">
-                  <span>{t('activityChart.notChecked')}</span>
+                  <span>{t('Not checked')}</span>
                   <span className="tabular">{hover.other}</span>
                 </p>
               )}
               <p className="mt-1 flex justify-between border-t pt-1">
-                <span>{t('activityChart.alertsSent')}</span>
+                <span>{t('Alerts sent')}</span>
                 <span className="tabular">{hover.alerts}</span>
               </p>
             </div>

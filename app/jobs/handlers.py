@@ -3,9 +3,11 @@
 import asyncio
 import base64
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
-from datetime import timedelta
+from contextlib import suppress
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 from sqlalchemy import delete, select
@@ -14,21 +16,26 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.alerts.service import (
     alert_on_harmful,
     alert_on_review,
+    create_alert,
     needs_redaction,
     redact_message,
+    scores_from_classifications,
     wipe_revisions,
 )
 from app.chats import resolve_group_names
+from app.classify.learning import compare
 from app.classify.pipeline import PipelineOutcome, run_pipeline
-from app.classify.stages import StageContext
+from app.classify.stages import StageContext, message_body
 from app.classify.thresholds import effective_thresholds
 from app.config import get_settings
-from app.db.models import Chat, Classification, Job, Message, MessageRevision
-from app.jobs.queue import ClaimedJob, PermanentError, TransientError
+from app.db.models import Chat, Classification, Job, Message, MessageRevision, ReviewDataIssue
+from app.jobs.queue import ClaimedJob, LostLeaseError, PermanentError, TransientError
 from app.media import ffmpeg
+from app.media.documents import extract_document
 from app.media.fetch import MAX_AUDIO_SECONDS, MediaSkipped, fetch_original, job_tmpdir
 from app.media.keep import keep_media
 from app.media.records import mark_purge
+from app.media.sniff import sniff_file
 from app.metrics import MESSAGES, STAGE_SECONDS, TRANSCRIBED_AUDIO_SECONDS
 from app.providers import Providers
 from app.settings_store import get_secret, get_setting
@@ -59,7 +66,7 @@ class Skip(Exception):
 
 
 async def _fetch(db: AsyncSession, message: Message, deps: Deps, dest: Path) -> str:
-    return await fetch_original(db, message, deps.key_bytes, dest)
+    return await fetch_original(db, message, deps.key_bytes, dest, recover=True)
 
 
 async def _image_data_url(db: AsyncSession, message: Message, deps: Deps, tmp: Path) -> str:
@@ -70,12 +77,21 @@ async def _image_data_url(db: AsyncSession, message: Message, deps: Deps, tmp: P
     return "data:image/jpeg;base64," + base64.b64encode(data).decode()
 
 
-async def _transcribe(db: AsyncSession, deps: Deps, tmp: Path, message: Message) -> None:
+async def _transcribe(
+    db: AsyncSession,
+    deps: Deps,
+    tmp: Path,
+    message: Message,
+    job: ClaimedJob | None = None,
+    *,
+    original: Path | None = None,
+) -> None:
     """Fill message.transcript from audio/voice/video; Skip when there is no speech."""
     if message.transcript:  # a retry must not pay for transcription twice
         return
-    raw, mp3 = tmp / "media.bin", tmp / "audio.mp3"
-    await _fetch(db, message, deps, raw)
+    raw, mp3 = original or tmp / "media.bin", tmp / "audio.mp3"
+    if original is None:
+        await _fetch(db, message, deps, raw)
     info = await ffmpeg.probe(raw)
     if not info.has_audio:
         raise Skip("video has no audio track")
@@ -96,36 +112,152 @@ async def _transcribe(db: AsyncSession, deps: Deps, tmp: Path, message: Message)
     if not result.text:
         raise Skip("empty transcript")
     message.transcript = result.text
-    await db.commit()  # persisted before moderation, so searches and retries see it
+    if job is not None:
+        await _commit_message(db, job)
+    else:
+        await db.commit()  # standalone preparation
 
 
 @dataclass
 class Prepared:
-    image: str | None = None
+    image: str | list[str] | None = None
     # Why the media could not be examined (the caption may still be). Never silently "safe".
     problem: Exception | None = None
+    media_analysis: dict[str, Any] | None = None
+    document_text: str | None = None
+
+
+async def _video_prepare(
+    db: AsyncSession,
+    job: ClaimedJob,
+    deps: Deps,
+    message: Message,
+    tmp: Path,
+    original: Path | None = None,
+) -> Prepared:
+    raw = original or tmp / "media.bin"
+    if original is None:
+        await _fetch(db, message, deps, raw)
+    try:
+        info, frames, timestamps = await ffmpeg.video_frames(raw, tmp)
+    except PermanentError as visual_error:
+        # A long/undecodable clip may still contain harmful speech. Keep the
+        # existing transcription path, but never clear its unchecked visuals.
+        with suppress(Skip, MediaSkipped, PermanentError):
+            await _transcribe(db, deps, tmp, message, job, original=raw)
+        return Prepared(problem=visual_error)
+    images = [
+        "data:image/jpeg;base64," + base64.b64encode(await asyncio.to_thread(p.read_bytes)).decode()
+        for p in frames
+    ]
+    prepared = Prepared(
+        image=images,
+        media_analysis={
+            "method": "sampled_video_v2",
+            "duration_seconds": info.duration,
+            "frame_timestamps": timestamps,
+            "has_audio": info.has_audio,
+            "audio_checked": not info.has_audio,
+            "complete": not info.has_audio,
+        },
+    )
+    if info.has_audio:
+        try:
+            await _transcribe(db, deps, tmp, message, job, original=raw)
+            assert prepared.media_analysis is not None
+            prepared.media_analysis["audio_checked"] = True
+            prepared.media_analysis["complete"] = True
+        except (Skip, MediaSkipped, PermanentError) as exc:
+            # Sampled visuals can still flag harm; missing speech cannot clear a clip.
+            prepared.problem = exc
+    return prepared
 
 
 async def _prepare(db: AsyncSession, job: ClaimedJob, deps: Deps, message: Message) -> Prepared:
     """Fetch/convert media as needed."""
-    if message.type in ("text", "document", "other"):
+    if message.type == "document" and not message.media:
+        return Prepared(
+            problem=PermanentError("Document attachment is unavailable; manual review required")
+        )
+    if message.type == "poll" and not (message.diagnostics or {}).get("has_poll_options"):
+        return Prepared(
+            problem=PermanentError(
+                "Poll options were not provided by OpenWA; manual review required"
+            )
+        )
+    if message.type in ("text", "poll") or (message.type == "other" and message.media is None):
         return Prepared()  # only text (or a caption/filename) can be moderated
     cfg = get_settings()
-    if (
-        cfg.local_safety_mode
-        and cfg.classification_provider == "ollama"
-        and message.type in ("image", "sticker")
-    ):
-        # This text-only adapter must still check captions, without fetching unexamined images.
-        return Prepared(problem=PermanentError("image content requires manual review"))
     try:
         async with job_tmpdir(deps.data_dir, job.id) as tmp:
+            if message.type in ("document", "other"):
+                raw = tmp / "document.bin"
+                content_type = await _fetch(db, message, deps, raw)
+                detected = await asyncio.to_thread(sniff_file, raw)
+                if detected and detected[0].startswith("image/"):
+                    jpeg = tmp / "image.jpg"
+                    await ffmpeg.image_to_jpeg(raw, jpeg)
+                    data = await asyncio.to_thread(jpeg.read_bytes)
+                    return Prepared(
+                        image="data:image/jpeg;base64," + base64.b64encode(data).decode(),
+                        media_analysis={"method": "attachment_image_v1", "complete": True},
+                    )
+                if detected and detected[0].startswith("audio/"):
+                    info = await ffmpeg.probe(raw)
+                    if info.has_video:
+                        if cfg.local_safety_mode and cfg.classification_provider == "ollama":
+                            return await _video_prepare(db, job, deps, message, tmp, original=raw)
+                        await _transcribe(db, deps, tmp, message, job, original=raw)
+                        return Prepared(
+                            problem=PermanentError("video visuals require manual review")
+                        )
+                    await _transcribe(db, deps, tmp, message, job, original=raw)
+                    cover = None
+                    if info.cover_art_count > 1:
+                        return Prepared(
+                            problem=PermanentError("multiple cover images require manual review")
+                        )
+                    if info.cover_art_count:
+                        jpeg = tmp / "cover.jpg"
+                        await ffmpeg.image_to_jpeg(raw, jpeg)
+                        data = await asyncio.to_thread(jpeg.read_bytes)
+                        cover = "data:image/jpeg;base64," + base64.b64encode(data).decode()
+                    return Prepared(
+                        image=cover,
+                        media_analysis={"method": "attachment_audio_v1", "complete": True},
+                    )
+                if detected and detected[0].startswith("video/"):
+                    if cfg.local_safety_mode and cfg.classification_provider == "ollama":
+                        return await _video_prepare(db, job, deps, message, tmp, original=raw)
+                    await _transcribe(db, deps, tmp, message, job, original=raw)
+                    return Prepared(problem=PermanentError("video visuals require manual review"))
+                document = await extract_document(
+                    raw, str((message.media or {}).get("mimetype") or content_type or "")
+                )
+                return Prepared(
+                    document_text=document["text"],
+                    media_analysis={k: v for k, v in document.items() if k != "text"},
+                    problem=None
+                    if document["complete"]
+                    else PermanentError(
+                        "Document contains unchecked visual, embedded or dynamic content; "
+                        "manual review required"
+                    ),
+                )
             if message.type in ("image", "sticker"):
                 return Prepared(image=await _image_data_url(db, message, deps, tmp))
-            await _transcribe(db, deps, tmp, message)
+            if (
+                message.type == "video"
+                and cfg.local_safety_mode
+                and cfg.classification_provider == "ollama"
+            ):
+                return await _video_prepare(db, job, deps, message, tmp)
+            await _transcribe(db, deps, tmp, message, job)
+            if cfg.local_safety_mode and message.type == "video":
+                return Prepared(problem=PermanentError("video visuals require manual review"))
             return Prepared()
     except (Skip, MediaSkipped, PermanentError) as exc:
-        if cfg.local_safety_mode:
+        if cfg.local_safety_mode or message.type in ("document", "other"):
             return Prepared(problem=exc)
         if not message.text:
             raise
@@ -155,6 +287,13 @@ def _persist(db: AsyncSession, message: Message, outcome: PipelineOutcome) -> No
 _RANK = {"safe": 0, "review": 1, "harmful": 2}
 
 
+async def _commit_message(db: AsyncSession, job: ClaimedJob) -> None:
+    from app.jobs.queue import ensure_owned
+
+    await ensure_owned(db, job)
+    await db.commit()
+
+
 async def process_message(job: ClaimedJob, deps: Deps) -> None:
     message_id = job.payload.get("message_id")
     if not isinstance(message_id, int):
@@ -165,7 +304,8 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             raise PermanentError("message no longer exists")
         if message.redacted:
             message.status = "skipped"  # redacted content is never reprocessed
-            await db.commit()
+            message.skip_reason = "Withheld content cannot be reprocessed"
+            await _commit_message(db, job)
             return
 
         # An edit queues a second check while the first may still be running: wait for it, so
@@ -183,9 +323,23 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
         if busy is not None:
             raise TransientError("this message is already being checked")
         prior_verdict = message.verdict
+        message.skip_reason = None
+        message.review_reason = None
+        # Only known content-free gateway system events may bypass moderation.
+        if (
+            message.raw_type in {"e2e_notification", "notification_template", "gp2", "revoked"}
+            and not message.text
+            and not message.transcript
+            and message.media is None
+        ):
+            message.status = "skipped"
+            message.verdict = None
+            message.skip_reason = "Confirmed system event: " + message.raw_type
+            await _commit_message(db, job)
+            return
         message.status = "processing"
         await db.execute(delete(Classification).where(Classification.message_id == message.id))
-        await db.commit()
+        await _commit_message(db, job)
         # Name the group before anything quotes it (an alert snapshots the chat name). Best effort.
         chat = await db.get(Chat, message.chat_id)
         if chat is not None and chat.is_group and not chat.name:
@@ -195,19 +349,25 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
         legacy = job.payload.get("media")  # jobs queued before the media column existed
         if message.media is None and isinstance(legacy, dict):
             message.media = {**legacy, "instance_id": job.payload.get("instance_id")}
-            await db.commit()
+            await _commit_message(db, job)
 
         try:
             prepared = await _prepare(db, job, deps, message)
         except (Skip, MediaSkipped) as exc:
             logger.info("message {} skipped: {}", message.id, exc)
             message.status = "skipped"
-            await db.commit()
+            message.verdict = None
+            message.skip_reason = str(exc)[:255]
+            await _commit_message(db, job)
             return
 
         api_key = await get_secret(db, "openai.api_key", deps.key_bytes)
         cfg = get_settings()
-        if not api_key and cfg.classification_provider != "ollama":
+        if (
+            not api_key
+            and cfg.classification_provider != "ollama"
+            and (message_body(message) or prepared.image or prepared.document_text)
+        ):
             raise PermanentError("OpenAI API key is not configured")
         ctx = StageContext(
             db=db,
@@ -221,15 +381,33 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
                 hours=int(await get_setting(db, "classification.context_max_age_hours"))
             ),
             image_data_url=prepared.image,
+            media_analysis=prepared.media_analysis,
+            document_text=prepared.document_text,
         )
         try:
             outcome = await run_pipeline(message, ctx)
         except ValueError:
-            if cfg.local_safety_mode and prepared.problem is not None:
+            if (cfg.local_safety_mode or message.type in ("document", "other", "poll")) and (
+                prepared.problem is not None
+                or message.type == "poll"
+                or (cfg.local_safety_mode and message.type == "other")
+            ):
+                if prepared.problem is None:
+                    prepared.problem = PermanentError(
+                        "Poll content was not provided by OpenWA; manual review required"
+                        if message.type == "poll"
+                        else "Unknown message type; no analyzable content"
+                    )
                 outcome = PipelineOutcome(verdict="review")
             else:
                 message.status = "skipped"  # nothing to classify (no text, transcript or image)
-                await db.commit()
+                message.verdict = None
+                message.skip_reason = (
+                    "Unknown message type; no analyzable content"
+                    if message.type == "other"
+                    else "No analyzable text, transcript or image"
+                )
+                await _commit_message(db, job)
                 return
 
         if cfg.local_safety_mode:
@@ -252,7 +430,12 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
                     text=revision.text,
                     sender_name=message.sender_name,
                 )
-                earlier = await run_pipeline(snapshot, ctx)
+                if not (revision.text or "").strip():
+                    continue
+                earlier = await run_pipeline(
+                    snapshot,
+                    replace(ctx, image_data_url=None, document_text=None, media_analysis=None),
+                )
                 for result in earlier.results:
                     result.stage = "revision_" + result.stage
                 if _RANK[earlier.verdict] > _RANK[outcome.verdict]:
@@ -268,16 +451,42 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             if prepared.problem is not None and outcome.verdict != "harmful":
                 outcome.verdict = "review"
 
+        if (
+            message.type in ("document", "other", "poll")
+            and prepared.problem
+            and outcome.verdict != "harmful"
+        ):
+            outcome.verdict = "review"
+
+        # Compare only fully prepared text; media and preserved revisions keep their own checks.
+        if prepared.problem is None and prepared.image is None:
+            outcome = await compare(message, ctx, outcome)
         _persist(db, message, outcome)
         problem = prepared.problem
-        if problem is not None and outcome.verdict != "harmful" and not cfg.local_safety_mode:
+        if (
+            problem is not None
+            and outcome.verdict != "harmful"
+            and not cfg.local_safety_mode
+            and message.type not in ("document", "other", "poll")
+        ):
             # Only the caption was examined: do not present the message as classified.
             message.verdict = None
             message.status = "failed" if isinstance(problem, PermanentError) else "skipped"
-            await db.commit()
+            if message.status == "skipped":
+                message.skip_reason = str(problem)[:255]
+            await _commit_message(db, job)
             if isinstance(problem, PermanentError):
                 raise problem  # visible on the Jobs page, retryable once the cause is fixed
             return
+        message.review_reason = (
+            (
+                str(prepared.problem)[:255]
+                if prepared.problem is not None
+                else "Classifier scores were inconclusive, including available chat context"
+            )
+            if outcome.verdict == "review"
+            else None
+        )
         message.verdict = outcome.verdict
         if (
             message.edited_at is not None
@@ -286,6 +495,10 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             # Editing a flagged message into something harmless must not clear the flag.
             message.verdict = prior_verdict
         message.status = "done"
+        if prepared.problem is None:
+            issue = await db.get(ReviewDataIssue, message.id)
+            if issue is not None:
+                await db.delete(issue)
         if outcome.results:
             # Every stage counts: a later look can clear what an earlier one flagged.
             high = [c for r in outcome.results for c in r.high_categories]
@@ -299,7 +512,15 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
                 logger.warning(
                     "message {} redacted at classification; content withheld", message.id
                 )
-        await db.commit()
+        notification = None
+        if message.verdict in ("harmful", "review"):
+            notification = Job(
+                type="prepare_alert",
+                payload={"message_id": message.id},
+                run_after=datetime.now(UTC) + timedelta(minutes=1),
+            )
+            db.add(notification)
+        await _commit_message(db, job)
         # Metrics only after the commit, so a retried job is never counted twice.
         MESSAGES.labels(message.type, outcome.verdict).inc()
         for r in outcome.results:
@@ -328,7 +549,28 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
         if hook is not None:
             try:
                 await hook(db, message, outcome)
+                if notification is not None:
+                    await db.delete(notification)
+                    await _commit_message(db, job)
+            except LostLeaseError:
+                raise
             except Exception:
                 # Classification is done and committed: a failing hook must not mark the message
                 # failed or re-run the pipeline. Alert delivery has its own retry.
                 logger.exception("alert hook failed for message {}", message.id)
+
+
+async def prepare_alert(job: ClaimedJob, deps: Deps) -> None:
+    """Retry alert creation from the committed decision without reclassifying content."""
+    async with deps.session_factory() as db:
+        message = await db.get(Message, job.payload.get("message_id"))
+        if message is None or message.verdict not in ("harmful", "review"):
+            return
+        if message.verdict == "review" and (await db.get(ReviewDataIssue, message.id)) is not None:
+            return
+        if message.verdict == "review" and not await get_setting(db, "alerts.alert_on_review"):
+            return
+        try:
+            await create_alert(db, message, await scores_from_classifications(db, message))
+        except Exception as exc:
+            raise TransientError("Alert creation temporarily failed") from exc

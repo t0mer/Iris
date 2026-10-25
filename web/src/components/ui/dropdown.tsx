@@ -1,8 +1,9 @@
-import { dir } from '../../lib/language'
 import * as MenuPrimitive from '@radix-ui/react-dropdown-menu'
 import { cn } from '../../lib/cn'
+import { useLanguage } from '../../lib/i18n'
 
 export function DropdownMenu(props: MenuPrimitive.DropdownMenuProps) {
+  const { dir } = useLanguage()
   return <MenuPrimitive.Root dir={dir} {...props} />
 }
 export const DropdownMenuTrigger = MenuPrimitive.Trigger

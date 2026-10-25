@@ -1,9 +1,8 @@
-import { he } from '../lib/he'
-import { apiErrorMessage } from '../lib/apiErrors'
+import { t } from '../lib/i18n'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Copy, Database, Loader2, PlugZap, Save, Undo2 } from 'lucide-react'
 import { useState } from 'react'
-import { toast } from 'sonner'
+import { toast } from '../lib/notify'
 import { QueryError } from '../components/QueryError'
 import { Section } from '../components/Section'
 import { Badge } from '../components/ui/badge'
@@ -13,7 +12,6 @@ import { Field, Input, Select } from '../components/ui/field'
 import { Skeleton } from '../components/ui/skeleton'
 import { Switch } from '../components/ui/switch'
 import { api, ApiError } from '../lib/api'
-import { t } from '../lib/i18n'
 import type { DatabaseProbe, DatabaseStatus, DbConfigInfo } from '../lib/types'
 
 type Kind = DbConfigInfo['kind']
@@ -51,7 +49,7 @@ export function DatabaseTab() {
     refetchInterval: (q) => (q.state.data?.copy_job.state === 'running' ? 1500 : false),
   })
   if (status.isError)
-    return <QueryError what={t('databaseTab.couldNotLoad')} onRetry={() => void status.refetch()} />
+    return <QueryError what="the database settings" onRetry={() => void status.refetch()} />
   if (!status.data) return <Skeleton className="h-64" />
   // Remounting on a changed saved choice resets the form to what is stored.
   return <DatabaseForm key={JSON.stringify(status.data.saved)} data={status.data} />
@@ -76,31 +74,32 @@ function DatabaseForm({ data }: { data: DatabaseStatus }) {
     mutationFn: (f: Form) =>
       api<DatabaseProbe>('/api/database/test', { method: 'POST', body: JSON.stringify(body(f)) }),
     onSuccess: setProbe,
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('databaseTab.testFailed')),
+    onError: (e) =>
+      toast.error(e instanceof ApiError ? e.message : 'Could not test the connection.'),
   })
   const save = useMutation({
     mutationFn: (f: Form) =>
       api<DatabaseStatus>('/api/database', { method: 'PUT', body: JSON.stringify(body(f)) }),
     onSuccess: (s) => {
-      toast.success(t('databaseTab.saved'))
+      toast.success('Database choice saved.')
       qc.setQueryData(['database'], s)
       setProbe(null)
     },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('databaseTab.saveFailed')),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not save the database.'),
   })
   const reset = useMutation({
     mutationFn: () => api<DatabaseStatus>('/api/database', { method: 'DELETE' }),
     onSuccess: (s) => {
-      toast.success(t('databaseTab.reset'))
+      toast.success('Iris will use SQLite again.')
       qc.setQueryData(['database'], s)
       setProbe(null)
     },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('databaseTab.resetFailed')),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not switch back.'),
   })
   const copy = useMutation({
     mutationFn: () => api('/api/database/copy', { method: 'POST' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['database'] }),
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('databaseTab.copyFailed')),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not start the copy.'),
   })
 
   const locked = data.env_override
@@ -114,35 +113,44 @@ function DatabaseForm({ data }: { data: DatabaseStatus }) {
 
   return (
     <div className="flex flex-col gap-5">
-      <Section title={t('databaseTab.whereTitle')} description={t('databaseTab.whereDesc')}>
+      <Section
+        title={t('Where Iris keeps its data')}
+        description={t(
+          'SQLite needs nothing to set up. Choose PostgreSQL or MySQL to keep the data on a database server.',
+        )}
+      >
         <div className="flex flex-col gap-2 text-sm" role="status">
           <p>
-            <span className="text-muted-foreground">{t('databaseTab.runningOn')}</span>
+            <span className="text-muted-foreground">{t('Running on')} </span>
             <Badge tone="info">
-              <Database /> <span dir="ltr">{describe(data.running)}</span>
+              <Database /> {describe(data.running)}
             </Badge>
           </p>
           {data.restart_required && (
             <p>
-              <span className="text-muted-foreground">{t('databaseTab.savedForNextStart')}</span>
-              <Badge tone="warning">
-                <span dir="ltr">{describe(data.saved)}</span>
-              </Badge>
+              <span className="text-muted-foreground">{t('Saved for the next start:')} </span>
+              <Badge tone="warning">{describe(data.saved)}</Badge>
               <span className="mt-1 block text-muted-foreground">
-                {t('databaseTab.restartToUse')}
+                {t('Restart Iris to start using it (for Docker:')} <code>docker restart iris</code>
+                ).
               </span>
             </p>
           )}
           {data.config_error && (
             <p role="alert" className="rounded-md bg-danger-soft p-3 text-danger">
-              {apiErrorMessage(data.config_error, 500)}
+              {data.config_error}
             </p>
           )}
-          {locked && <p className="text-muted-foreground">{t('databaseTab.envLocked')}</p>}
+          {locked && (
+            <p className="text-muted-foreground">
+              {t('The database is set by the')} <code>IRIS_DATABASE_URL</code>{' '}
+              {t('environment variable, so it cannot be changed here.')}
+            </p>
+          )}
         </div>
       </Section>
 
-      <Section title={t('databaseTab.sectionTitle')}>
+      <Section title={t('Database')}>
         <form
           className="flex flex-col gap-4"
           onSubmit={(e) => {
@@ -150,7 +158,7 @@ function DatabaseForm({ data }: { data: DatabaseStatus }) {
             save.mutate(form)
           }}
         >
-          <Field label={t('databaseTab.type')} className="max-w-64">
+          <Field label={t('Type')} className="max-w-64">
             <Select
               value={form.kind}
               disabled={locked}
@@ -167,14 +175,16 @@ function DatabaseForm({ data }: { data: DatabaseStatus }) {
 
           {!remote && (
             <p className="max-w-prose text-sm text-muted-foreground">
-              {t('databaseTab.sqliteDesc')}
+              {t(
+                'Iris stores everything in one file in its data folder. Messages are searched with the built-in full-text index.',
+              )}
             </p>
           )}
 
           {remote && (
             <>
               <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
-                <Field label={t('databaseTab.host')}>
+                <Field label={t('Host')}>
                   <Input
                     dir="ltr"
                     value={form.host}
@@ -183,7 +193,7 @@ function DatabaseForm({ data }: { data: DatabaseStatus }) {
                     autoComplete="off"
                   />
                 </Field>
-                <Field label={t('databaseTab.port')}>
+                <Field label={t('Port')}>
                   <Input
                     dir="ltr"
                     className="tabular"
@@ -196,7 +206,7 @@ function DatabaseForm({ data }: { data: DatabaseStatus }) {
                   />
                 </Field>
               </div>
-              <Field label={t('databaseTab.dbName')} hint={t('databaseTab.dbNameHint')}>
+              <Field label={t('Database name')} hint={t('Create it first and leave it empty.')}>
                 <Input
                   dir="ltr"
                   value={form.name}
@@ -206,7 +216,7 @@ function DatabaseForm({ data }: { data: DatabaseStatus }) {
                 />
               </Field>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label={t('databaseTab.user')}>
+                <Field label={t('User')}>
                   <Input
                     dir="ltr"
                     value={form.user}
@@ -216,17 +226,21 @@ function DatabaseForm({ data }: { data: DatabaseStatus }) {
                   />
                 </Field>
                 <Field
-                  label={t('databaseTab.password')}
-                  hint={data.saved.password_set ? t('databaseTab.passwordHint') : undefined}
+                  label={t('Password')}
+                  hint={
+                    data.saved.password_set
+                      ? t(
+                          'Leave blank to keep the saved one. Changing the host, port or database means typing it again.',
+                        )
+                      : undefined
+                  }
                 >
                   <Input
                     dir="ltr"
                     type="password"
                     value={form.password}
                     disabled={locked}
-                    placeholder={
-                      data.saved.password_set ? t('databaseTab.passwordPlaceholder') : ''
-                    }
+                    placeholder={data.saved.password_set ? t('Saved, leave blank to keep') : ''}
                     onChange={(e) => set({ password: e.target.value })}
                     autoComplete="new-password"
                   />
@@ -234,23 +248,29 @@ function DatabaseForm({ data }: { data: DatabaseStatus }) {
               </div>
               <label className="flex items-start justify-between gap-4 py-1 text-sm">
                 <span className="flex flex-col gap-0.5">
-                  <span className="font-medium">{t('databaseTab.useTls')}</span>
-                  <span className="text-muted-foreground">{t('databaseTab.useTlsHint')}</span>
+                  <span className="font-medium">{t('Use TLS')}</span>
+                  <span className="text-muted-foreground">
+                    {t("Encrypts the connection with the server's certificate.")}
+                  </span>
                 </span>
                 <Switch
                   checked={form.tls}
                   disabled={locked}
                   onCheckedChange={(v) => set({ tls: v })}
-                  aria-label={t('databaseTab.useTls')}
+                  aria-label={t('Use TLS')}
                 />
               </label>
               {form.kind === 'mysql' && (
                 <p className="max-w-prose text-sm text-muted-foreground">
-                  {t('databaseTab.mysqlCharset')}
+                  {t('Create the database with the')} <code>utf8mb4</code>{' '}
+                  {t('character set so Hebrew and emoji are stored correctly.')}
                 </p>
               )}
               <p className="max-w-prose text-sm text-muted-foreground">
-                {t('databaseTab.searchNote', LABEL[form.kind])}
+                {t('Search on')} {LABEL[form.kind]}{' '}
+                {t(
+                  'finds a word anywhere inside a message, instead of the SQLite full-text index.',
+                )}
               </p>
             </>
           )}
@@ -260,15 +280,13 @@ function DatabaseForm({ data }: { data: DatabaseStatus }) {
               role={probe.ok ? 'status' : 'alert'}
               className={`rounded-md p-3 text-sm ${probe.ok ? 'bg-success-soft' : 'bg-danger-soft text-danger'}`}
             >
-              <p className="font-medium">{apiErrorMessage(probe.detail, probe.ok ? 200 : 400)}</p>
+              <p className="font-medium">{probe.detail}</p>
               {probe.version && (
                 <p className="text-muted-foreground">
-                  {t('databaseTab.serverVersion')} <span dir="ltr">{probe.version}</span>
+                  {t('Server')} {probe.version}
                 </p>
               )}
-              {probe.warning && (
-                <p className="mt-1 text-warning">{apiErrorMessage(probe.warning, 400)}</p>
-              )}
+              {probe.warning && <p className="mt-1 text-warning">{t(probe.warning)}</p>}
             </div>
           )}
 
@@ -280,21 +298,23 @@ function DatabaseForm({ data }: { data: DatabaseStatus }) {
               onClick={() => test.mutate(form)}
             >
               {test.isPending ? <Loader2 className="animate-spin" /> : <PlugZap />}{' '}
-              {t('databaseTab.testConnection')}
+              {t('Test connection')}
             </Button>
             <Button type="submit" disabled={locked || save.isPending}>
-              <Save /> {t('common.save')}
+              <Save /> {t('Save')}
             </Button>
             {!locked && data.saved.kind !== 'sqlite' && (
               <ConfirmDialog
                 trigger={
                   <Button type="button" variant="ghost" disabled={reset.isPending}>
-                    <Undo2 /> {t('databaseTab.useSqliteAgain')}
+                    <Undo2 /> {t('Use SQLite again')}
                   </Button>
                 }
-                title={t('databaseTab.backToSqliteTitle')}
-                description={t('databaseTab.backToSqliteDesc')}
-                confirmLabel={t('databaseTab.useSqliteConfirm')}
+                title={t('Go back to SQLite?')}
+                description={t(
+                  'Iris will use the SQLite file in its data folder after the next restart. Data in the other database stays where it is.',
+                )}
+                confirmLabel={t('Use SQLite')}
                 tone="primary"
                 onConfirm={() => reset.mutate()}
               />
@@ -304,36 +324,44 @@ function DatabaseForm({ data }: { data: DatabaseStatus }) {
       </Section>
 
       {(canCopy || job.state !== 'idle') && (
-        <Section title={t('databaseTab.moveTitle')} description={t('databaseTab.moveDesc')}>
+        <Section
+          title={t('Move your data')}
+          description={t(
+            'Copy phones, settings, messages and alerts into the saved database. It must be empty. Your current database is not changed.',
+          )}
+        >
           {job.state === 'idle' && (
             <ConfirmDialog
               trigger={
                 <Button type="button" variant="outline" className="w-fit" disabled={!canCopy}>
-                  <Copy /> {t('databaseTab.copyDataTo', LABEL[data.saved.kind])}
+                  <Copy /> {t('Copy my data to')} {LABEL[data.saved.kind]}
                 </Button>
               }
-              title={t('databaseTab.copyTitle')}
-              description={t('databaseTab.copyDesc')}
-              confirmLabel={t('databaseTab.copyConfirm')}
+              title={t('Copy your data?')}
+              description={t(
+                'Messages that arrive while it copies are not included. Restart Iris right after it finishes.',
+              )}
+              confirmLabel={t('Copy my data')}
               tone="primary"
               onConfirm={() => copy.mutate()}
             />
           )}
           {job.state === 'running' && (
             <p role="status" className="flex items-center gap-2 text-sm">
-              <Loader2 className="size-4 animate-spin" />{' '}
-              {t('databaseTab.copying', tableLabel(job.table) || t('databaseTab.yourData'))}
+              <Loader2 className="size-4 animate-spin" /> {t('Copying')} {job.table || 'your data'}…
             </p>
           )}
           {job.state === 'done' && (
             <div role="status" className="text-sm">
-              <p className="font-medium">{t('databaseTab.done')}</p>
+              <p className="font-medium">
+                {t('Done. Restart Iris to start using the new database.')}
+              </p>
               <ul className="mt-2 grid gap-x-6 text-muted-foreground sm:grid-cols-2">
                 {Object.entries(job.copied)
                   .filter(([, n]) => n > 0)
-                  .map(([table, n]) => (
-                    <li key={table}>
-                      <span className="tabular">{n}</span> {tableLabel(table)}
+                  .map(([t, n]) => (
+                    <li key={t}>
+                      <span className="tabular">{n}</span> {t.replace('_', ' ')}
                     </li>
                   ))}
               </ul>
@@ -341,7 +369,7 @@ function DatabaseForm({ data }: { data: DatabaseStatus }) {
           )}
           {job.state === 'failed' && (
             <div role="alert" className="rounded-md bg-danger-soft p-3 text-sm text-danger">
-              {apiErrorMessage(job.error, 400)}
+              {job.error}
               {canCopy && (
                 <Button
                   type="button"
@@ -350,7 +378,7 @@ function DatabaseForm({ data }: { data: DatabaseStatus }) {
                   className="ms-3"
                   onClick={() => copy.mutate()}
                 >
-                  {t('ui.tryAgain')}
+                  {t('Try again')}
                 </Button>
               )}
             </div>
@@ -359,20 +387,4 @@ function DatabaseForm({ data }: { data: DatabaseStatus }) {
       )}
     </div>
   )
-}
-
-function tableLabel(table: string): string {
-  const labels: Record<string, string> = {
-    messages: he('Messages'),
-    alerts: he('Alerts'),
-    jobs: he('Jobs'),
-    chats: he('Chats'),
-    instances: he('Phone connections'),
-    users: he('Users'),
-    classifications: he('Classifications'),
-    message_receipts: he('Message receipts'),
-    settings: he('Settings'),
-    stored_media: he('Stored media'),
-  }
-  return labels[table] ?? table
 }

@@ -1,4 +1,6 @@
+import { t } from '../lib/i18n'
 import { useQuery } from '@tanstack/react-query'
+import { SkipGroup } from '../components/SkipGroup'
 import { Search, SearchX } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -20,22 +22,21 @@ import { Field, Input, Select } from '../components/ui/field'
 import { Skeleton } from '../components/ui/skeleton'
 import { api } from '../lib/api'
 import { dateTime } from '../lib/format'
-import { strings, t } from '../lib/i18n'
 import { useUrlState } from '../lib/urlState'
 import type { Instance, MessagePage } from '../lib/types'
 
-const TYPES = ['text', 'image', 'audio', 'voice', 'video', 'sticker', 'document', 'other']
+const TYPES = ['text', 'image', 'audio', 'voice', 'video', 'sticker', 'document', 'poll', 'other']
 const VERDICTS = [
-  { value: 'harmful', label: strings.verdicts.harmful },
-  { value: 'review', label: strings.messages.needsReview },
-  { value: 'safe', label: strings.verdicts.safe },
-  { value: 'none', label: strings.messages.notChecked },
+  { value: 'harmful', label: 'Harmful' },
+  { value: 'review', label: 'Needs review' },
+  { value: 'safe', label: 'Safe' },
+  { value: 'none', label: 'Not checked' },
 ]
 const WHEN = [
-  { value: '', label: strings.messages.anyTime },
-  { value: 'today', label: strings.messages.today },
-  { value: '7d', label: strings.messages.days7 },
-  { value: '30d', label: strings.messages.days30 },
+  { value: '', label: 'Any time' },
+  { value: 'today', label: 'Today' },
+  { value: '7d', label: '7 days' },
+  { value: '30d', label: '30 days' },
 ]
 const PAGE_SIZE = 25
 
@@ -85,10 +86,10 @@ export function Messages() {
   if (from) params.set('from', from)
 
   const { data: instances } = useQuery({
-    queryKey: ['instances'],
-    queryFn: () => api<Instance[]>('/api/instances'),
+    queryKey: ['auth-phones'],
+    queryFn: () => api<Instance[]>('/api/auth/phones'),
   })
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['messages', params.toString()],
     queryFn: () => api<MessagePage>(`/api/messages?${params}`),
   })
@@ -99,8 +100,10 @@ export function Messages() {
   return (
     <div className="flex flex-col gap-5">
       <PageHeader
-        title={t('messages.title')}
-        description={t('messages.description')}
+        title={t('Messages')}
+        description={t(
+          'Everything Iris has seen. Search covers messages and voice-note transcripts, in Hebrew and English.',
+        )}
         actions={<RevealButton revealed={revealed} onToggle={toggle} />}
       />
 
@@ -109,8 +112,8 @@ export function Messages() {
         <Input
           type="search"
           dir="auto"
-          aria-label={t('messages.searchLabel')}
-          placeholder={t('messages.searchPlaceholder')}
+          aria-label={t('Search messages')}
+          placeholder={t('Search words, names or transcripts')}
           className="min-h-11 ps-9"
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -125,19 +128,19 @@ export function Messages() {
         }}
         leading={
           <Chips
-            label={t('messages.when')}
+            label={t('When')}
             value={get('when')}
             options={WHEN}
             onChange={(v) => update({ when: v })}
           />
         }
       >
-        <Field label={t('messages.phone')} className="md:w-40">
+        <Field label={t('Phone')} className="md:w-40">
           <Select
             value={get('instance_id')}
             onChange={(e) => update({ instance_id: e.target.value })}
           >
-            <option value="">{t('messages.allPhones')}</option>
+            <option value="">{t('All phones')}</option>
             {instances?.map((i) => (
               <option key={i.id} value={i.id}>
                 {i.kid_name}
@@ -145,27 +148,27 @@ export function Messages() {
             ))}
           </Select>
         </Field>
-        <Field label={t('messages.type')} className="md:w-36">
+        <Field label={t('Type')} className="md:w-36">
           <Select value={get('type')} onChange={(e) => update({ type: e.target.value })}>
-            <option value="">{t('messages.allTypes')}</option>
-            {TYPES.map((ty) => (
-              <option key={ty} value={ty}>
-                {(strings.messageTypes as Record<string, string>)[ty] ?? ty}
+            <option value="">{t('All types')}</option>
+            {TYPES.map((type) => (
+              <option key={type} value={type}>
+                {t(type)}
               </option>
             ))}
           </Select>
         </Field>
-        <Field label={t('messages.verdict')} className="md:w-40">
+        <Field label={t('Verdict')} className="md:w-40">
           <Select value={get('verdict')} onChange={(e) => update({ verdict: e.target.value })}>
-            <option value="">{t('messages.anyVerdict')}</option>
+            <option value="">{t('Any verdict')}</option>
             {VERDICTS.map((v) => (
               <option key={v.value} value={v.value}>
-                {v.label}
+                {t(v.label)}
               </option>
             ))}
           </Select>
         </Field>
-        <Field label={t('messages.sender')} className="md:w-40">
+        <Field label={t('Sender')} className="md:w-40">
           <Input
             dir="auto"
             value={get('sender')}
@@ -183,7 +186,10 @@ export function Messages() {
           ))}
         {isError && (
           <li role="alert" className="p-4 text-sm text-danger">
-            {t('messages.couldNotLoad')}
+            {t('Could not load messages.')}{' '}
+            <button className="underline" onClick={() => void refetch()}>
+              {t('Retry')}
+            </button>
           </li>
         )}
         {data?.items.map((m) => (
@@ -197,11 +203,9 @@ export function Messages() {
             >
               <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <KidStack names={m.kids.map((k) => k.kid_name)} />
-                <span className="font-medium">
-                  {strings.names.join(m.kids.map((k) => k.kid_name))}
-                </span>
+                <span className="font-medium">{m.kids.map((k) => k.kid_name).join(' and ')}</span>
                 <span className="text-sm text-muted-foreground">
-                  {m.chat_name ?? (m.is_group ? t('messages.unnamedGroup') : t('messages.aChat'))}
+                  {m.chat_name ?? (m.is_group ? 'an unnamed group' : 'a chat')}
                   {m.sender_name ? `, ${m.sender_name}` : ''}
                 </span>
                 <span className="ms-auto text-xs text-muted-foreground">{dateTime(m.sent_at)}</span>
@@ -224,13 +228,16 @@ export function Messages() {
               </span>
               <Failure m={m} />
             </Link>
+            <div className="px-4 pb-3">
+              <SkipGroup messageId={m.id} isGroup={m.is_group} />
+            </div>
           </li>
         ))}
         {data && data.items.length === 0 && (
           <li>
             <EmptyState
               icon={SearchX}
-              title={active > 0 ? t('messages.noneMatch') : t('messages.noneYet')}
+              title={active > 0 ? t('No messages match') : t('No messages yet')}
               action={
                 active > 0 ? (
                   <Button
@@ -240,12 +247,14 @@ export function Messages() {
                       clear()
                     }}
                   >
-                    {t('messages.clearSearchAndFilters')}
+                    {t('Clear search and filters')}
                   </Button>
                 ) : undefined
               }
             >
-              {active > 0 ? t('messages.tryFewerWords') : t('messages.appearAfterFewSeconds')}
+              {active > 0
+                ? t('Try fewer words or remove a filter.')
+                : t('Messages appear here a few seconds after a phone receives or sends them.')}
             </EmptyState>
           </li>
         )}
@@ -255,7 +264,7 @@ export function Messages() {
           page={page}
           pageSize={PAGE_SIZE}
           total={data.total}
-          noun={strings.messages.noun}
+          noun={['message', 'messages']}
           onPage={(p) => update({ page: String(p) })}
         />
       )}
