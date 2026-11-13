@@ -66,7 +66,17 @@ async def test_register_webhook_success_and_private_address_hint(app_client) -> 
         return_value=httpx.Response(400, json={"message": "Destination address is not allowed"})
     )
     r = await app_client.post(f"/api/instances/{out['id']}/register-webhook")
-    assert r.status_code == 502 and "public hostname" in r.json()["detail"]
+    assert r.status_code == 502 and "OpenWA webhook base URL" in r.json()["detail"]
+    persisted = (await app_client.get(f"/api/instances/{out['id']}")).json()
+    assert persisted["monitoring_status"] == "failed"
+    assert "Destination address is not allowed" in persisted["monitoring_error"]
+    route.mock(return_value=httpx.Response(201, json={"id": "wh-1"}))
+    assert (
+        await app_client.post(f"/api/instances/{out['id']}/register-webhook")
+    ).status_code == 200
+    persisted = (await app_client.get(f"/api/instances/{out['id']}")).json()
+    assert persisted["monitoring_status"] == "registered"
+    assert persisted["monitoring_error"] is None
 
 
 @respx.mock
@@ -331,3 +341,66 @@ async def test_repair_disconnected_session_starts_existing_id(app_client) -> Non
         "status"
     ] == "initializing"
     assert start.called
+
+
+@respx.mock
+async def test_embedded_qr_rejects_invalid_and_expires_unchanged_image(app_client) -> None:  # type: ignore[no-untyped-def]
+    import base64
+    import time
+
+    from app.api.instances import _qr_seen
+
+    _qr_seen.clear()
+    out = (await app_client.post("/api/instances", json=BODY)).json()
+    qr = "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n\x1a\nexample").decode()
+    provider = respx.get("https://wa.example.com/api/sessions/sess-1/qr").mock(
+        return_value=httpx.Response(200, json={"qrCode": qr})
+    )
+    url = f"/api/instances/{out['id']}/qr"
+    first = await app_client.get(url)
+    assert first.json() == {"status": "qr_ready", "qr": qr}
+    assert first.headers["cache-control"] == "no-store"
+    assert provider.calls.last.request.headers["x-api-key"] == "super-secret-key"
+    digest = _qr_seen[(out["id"], "sess-1")][0]
+    _qr_seen[(out["id"], "sess-1")] = (digest, time.monotonic() - 121)
+    assert (await app_client.get(url)).json() == {"status": "expired", "qr": None}
+    provider.mock(
+        return_value=httpx.Response(200, json={"qrCode": "data:image/png;base64,bm90IGFuIGltYWdl"})
+    )
+    invalid = await app_client.get(url)
+    assert invalid.status_code == 502 and "invalid QR" in invalid.json()["detail"]
+    assert (await app_client.get(f"/api/instances/{out['id']}")).status_code == 200
+    _qr_seen.clear()
+
+
+@respx.mock
+async def test_new_qr_refreshes_only_disconnected_session_and_never_logs_out(app_client) -> None:  # type: ignore[no-untyped-def]
+    out = (await app_client.post("/api/instances", json=BODY)).json()
+    session = respx.get("https://wa.example.com/api/sessions/sess-1").mock(
+        return_value=httpx.Response(200, json={"status": "ready"})
+    )
+    stop = respx.post("https://wa.example.com/api/sessions/sess-1/stop").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    start = respx.post("https://wa.example.com/api/sessions/sess-1/start").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    url = f"/api/instances/{out['id']}/qr/refresh"
+    assert (await app_client.post(url)).json()["status"] == "ready"
+    assert not stop.called and not start.called
+    session.mock(return_value=httpx.Response(200, json={"status": "qr_ready"}))
+    assert (await app_client.post(url)).json()["status"] == "waiting"
+    assert stop.called and start.called
+    assert (await app_client.get(f"/api/instances/{out['id']}")).status_code == 200
+
+
+@respx.mock
+async def test_repair_reports_timeout_cause_without_leaking_sender_key(app_client) -> None:  # type: ignore[no-untyped-def]
+    out = (await app_client.post("/api/instances", json=BODY)).json()
+    respx.get("https://wa.example.com/api/sessions/sess-1").mock(
+        side_effect=httpx.ReadTimeout("timeout with private upstream data")
+    )
+    result = await app_client.post(f"/api/instances/{out['id']}/re-pair")
+    assert result.status_code == 502 and "did not respond in time" in result.json()["detail"]
+    assert "private upstream" not in result.text and "super-secret" not in result.text
+    assert (await app_client.get(f"/api/instances/{out['id']}")).status_code == 200

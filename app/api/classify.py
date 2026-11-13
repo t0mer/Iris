@@ -17,10 +17,10 @@ from app.config import Settings, get_settings
 from app.db.models import Message
 from app.deps import get_db
 from app.jobs.queue import PermanentError, TransientError
-from app.security.auth import current_user
+from app.security.auth import admin_user
 from app.settings_store import get_secret, get_setting
 
-router = APIRouter(prefix="/api/classify", tags=["classify"], dependencies=[Depends(current_user)])
+router = APIRouter(prefix="/api/classify", tags=["classify"], dependencies=[Depends(admin_user)])
 
 MAX_CHECKS = 30
 WINDOW_SECONDS = 300
@@ -92,7 +92,12 @@ async def classify_test(
     if _rate_limited(len(inputs)):
         raise HTTPException(429, "Too many checks. Wait a few minutes and try again.")
     client = (
-        OllamaModerator(cfg.ollama_base_url, cfg.ollama_model)
+        OllamaModerator(
+            cfg.ollama_base_url,
+            cfg.ollama_model,
+            context_tokens=cfg.ollama_context_tokens,
+            output_tokens=cfg.ollama_output_tokens,
+        )
         if cfg.classification_provider == "ollama"
         else ModerationClient(key or "")
     )

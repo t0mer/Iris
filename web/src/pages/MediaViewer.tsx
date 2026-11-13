@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { useQuery } from '@tanstack/react-query'
 import { BellRing, ChevronLeft, FileX, MessagesSquare } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
@@ -11,14 +12,10 @@ import { Button } from '../components/ui/button'
 import { Skeleton } from '../components/ui/skeleton'
 import { api, ApiError } from '../lib/api'
 import { fileSize } from '../lib/format'
-import { strings, t } from '../lib/i18n'
 import type { MediaInfo } from '../lib/types'
+import { BackButton } from '../components/BackButton'
 
-const LABEL = {
-  image: strings.media.photo,
-  audio: strings.media.voiceNote,
-  video: strings.media.video,
-} as const
+const LABEL = { image: 'Photo', audio: 'Voice note', video: 'Video' } as const
 
 /** The page the WhatsApp alert links to: the kept file, shown after sign-in. */
 export function MediaViewer() {
@@ -37,9 +34,12 @@ export function MediaViewer() {
   if (gone)
     return (
       <div className="flex max-w-3xl flex-col gap-6">
-        <PageHeader title={t('mediaViewer.keptMedia')} />
-        <EmptyState icon={FileX} title={t('mediaViewer.noLongerKept')}>
-          {t('mediaViewer.noLongerKeptBody')}
+        <BackButton fallback="/alerts" />
+        <PageHeader title={t('Kept media')} />
+        <EmptyState icon={FileX} title={t('This file is no longer kept')}>
+          {t(
+            'It was deleted when its keep time ended, or it was withheld. The message itself may still be in Iris.',
+          )}
         </EmptyState>
       </div>
     )
@@ -49,15 +49,13 @@ export function MediaViewer() {
         to="/alerts"
         className="inline-flex min-h-10 w-fit items-center gap-1 text-sm font-medium text-primary"
       >
-        <ChevronLeft className="size-4 rtl:rotate-180" /> {t('mediaViewer.allAlerts')}
+        <ChevronLeft className="size-4 rtl:rotate-180" /> {t('All alerts')}
       </Link>
       <PageHeader
-        title={m ? LABEL[m.kind] : t('mediaViewer.keptMedia')}
+        title={m ? LABEL[m.kind] : t('Kept media')}
         description={m ? `${m.content_type}, ${fileSize(m.size_bytes)}` : undefined}
       />
-      {info.isError && (
-        <QueryError what={t('mediaViewer.couldNotLoad')} onRetry={() => void info.refetch()} />
-      )}
+      {info.isError && <QueryError what="the media" onRetry={() => void info.refetch()} />}
       {!m && !info.isError && <Skeleton className="h-64" />}
       {m && (
         <>
@@ -73,13 +71,17 @@ export function MediaViewer() {
             {m.alert_id !== null && (
               <Button asChild variant="outline">
                 <Link to={`/alerts/${m.alert_id}`}>
-                  <BellRing /> {t('mediaViewer.seeAlert')}
+                  <BellRing /> {t('See the alert')}
                 </Link>
               </Button>
             )}
-            <Button asChild variant="ghost">
-              <Link to={`/messages/${m.message_id}`}>
-                <MessagesSquare /> {t('mediaViewer.seeConversation')}
+            <Button asChild variant="ghost" size="sm">
+              <Link
+                to={`/messages/${m.message_id}`}
+                aria-label={t('See the conversation')}
+                title={t('Open the full conversation')}
+              >
+                <MessagesSquare /> {t('Chat')}
               </Link>
             </Button>
           </div>

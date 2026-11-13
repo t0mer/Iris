@@ -1,13 +1,13 @@
+import { t } from '../lib/i18n'
 import { Eye, EyeOff } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { t } from '../lib/i18n'
 import { Button } from './ui/button'
 
 /** The eye: shows or hides the content it belongs to. */
 export function RevealButton({
   revealed,
   onToggle,
-  label,
+  label = 'content',
   context,
   className,
 }: {
@@ -19,18 +19,21 @@ export function RevealButton({
   className?: string
 }) {
   const Icon = revealed ? EyeOff : Eye
-  const word = label ?? t('ui.contentLabel')
-  const verb = revealed ? t('ui.hide', word) : t('ui.show', word)
+  label = t(label)
   return (
     <Button
       type="button"
       variant="outline"
       size="sm"
-      aria-label={context ? `${verb}, ${context}` : undefined}
+      title={
+        revealed ? t('Hide {value0}', { value0: label }) : t('Show {value0}', { value0: label })
+      }
+      aria-label={context ? `${revealed ? t('Hide') : t('Show')} ${label}, ${context}` : undefined}
       onClick={onToggle}
       className={className}
     >
-      <Icon /> {verb}
+      <Icon />{' '}
+      {revealed ? t('Hide {value0}', { value0: label }) : t('Show {value0}', { value0: label })}
     </Button>
   )
 }
@@ -45,7 +48,7 @@ export function Masked({ length = 24 }: { length?: number }) {
       <span aria-hidden className="select-none blur-[3px]">
         {mask}
       </span>
-      <span className="sr-only">{t('ui.contentHidden')}</span>
+      <span className="sr-only">{t('Content hidden')}</span>
     </>
   )
 }

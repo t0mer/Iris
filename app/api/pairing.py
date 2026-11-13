@@ -8,14 +8,16 @@ import json
 import re
 import secrets
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
+from weakref import WeakValueDictionary
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from loguru import logger
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.instances import (
@@ -29,19 +31,30 @@ from app.config import Settings, get_settings
 from app.db.models import Instance, Setting, User
 from app.deps import get_db
 from app.openwa.client import OpenWAClient, OpenWAError
-from app.security.auth import current_user
+from app.security.auth import admin_user
 from app.security.crypto import decrypt, encrypt
 from app.settings_store import get_setting
 
 router = APIRouter(prefix="/api/pairing", tags=["pairing"])
 DB = Annotated[AsyncSession, Depends(get_db)]
 Cfg = Annotated[Settings, Depends(get_settings)]
-Owner = Annotated[User, Depends(current_user)]
+Owner = Annotated[User, Depends(admin_user)]
 PREFIX = "pairing.draft."
+COMPLETED_PREFIX = "pairing.completed."
 LEASE_SECONDS = 120
 MAX_AGE = 1800
 QR_SECONDS = 120
-_lock = asyncio.Lock()
+_locks: WeakValueDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = WeakValueDictionary()
+
+
+def _pairing_lock() -> asyncio.Lock:
+    """Serialize workflows in their running loop, without retaining closed test/app loops."""
+    loop = asyncio.get_running_loop()
+    lock = _locks.get(loop)
+    if lock is None:
+        lock = asyncio.Lock()
+        _locks[loop] = lock
+    return lock
 
 
 class PairingIn(BaseModel):
@@ -161,7 +174,7 @@ async def begin(
     body: PairingIn, db: DB, cfg: Cfg, user: Owner, response: Response
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
-    async with _lock:
+    async with _pairing_lock():
         count = await db.scalar(
             select(func.count()).select_from(Setting).where(Setting.key.startswith(PREFIX))
         )
@@ -314,7 +327,7 @@ async def _status(
 @router.get("/{token}")
 async def status(token: str, db: DB, cfg: Cfg, user: Owner, response: Response) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
-    async with _lock:
+    async with _pairing_lock():
         row, data = await _owned(db, token, user, cfg)
         return await _status(db, row, data, cfg)
 
@@ -322,14 +335,14 @@ async def status(token: str, db: DB, cfg: Cfg, user: Owner, response: Response) 
 @router.post("/{token}/refresh")
 async def refresh(token: str, db: DB, cfg: Cfg, user: Owner, response: Response) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
-    async with _lock:
+    async with _pairing_lock():
         row, data = await _owned(db, token, user, cfg)
         return await _status(db, row, data, cfg, refresh=True)
 
 
 @router.delete("/{token}", status_code=204)
 async def cancel(token: str, db: DB, cfg: Cfg, user: Owner) -> None:
-    async with _lock:
+    async with _pairing_lock():
         row = await db.get(Setting, PREFIX + token)
         if row is None:
             return
@@ -346,7 +359,16 @@ async def cancel(token: str, db: DB, cfg: Cfg, user: Owner) -> None:
 
 @router.post("/{token}/complete", status_code=201)
 async def complete(token: str, body: PairingComplete, db: DB, cfg: Cfg, user: Owner) -> InstanceOut:
-    async with _lock:
+    async with _pairing_lock():
+        receipt_key = COMPLETED_PREFIX + hashlib.sha256(token.encode()).hexdigest()
+        receipt = await db.get(Setting, receipt_key)
+        if receipt is not None:
+            if receipt.value.get("owner") != user.id:
+                raise HTTPException(404, "Pairing request not found")
+            if receipt.value.get("expires", 0) > time.time():
+                instance = await db.get(Instance, receipt.value["instance_id"])
+                if instance is not None:
+                    return await instance_out(db, instance, cfg)
         row, data = await _owned(db, token, user, cfg)
         state = await _status(db, row, data, cfg)
         if state["status"] != "ready":
@@ -365,6 +387,7 @@ async def complete(token: str, body: PairingComplete, db: DB, cfg: Cfg, user: Ow
             openwa_instance_id=data["session_id"],
             openwa_api_key_enc=encrypt(cfg.key_bytes, data["key"]),
             webhook_token=secrets.token_urlsafe(32),
+            signature_required=True,
             enabled=False,
         )
         if body.role != "parent":
@@ -372,8 +395,9 @@ async def complete(token: str, body: PairingComplete, db: DB, cfg: Cfg, user: Ow
                 async with _client(data) as client:
                     await client.register_webhook(
                         data["session_id"],
-                        f"{cfg.public_base_url}/webhooks/{inst.webhook_token}",
+                        f"{cfg.webhook_url_base}/webhooks/{inst.webhook_token}",
                         webhook_secret(cfg, inst.webhook_token),
+                        retry_count=int(await get_setting(db, "openwa.webhook_attempts")),
                     )
             except OpenWAError:
                 raise HTTPException(
@@ -391,26 +415,53 @@ async def complete(token: str, body: PairingComplete, db: DB, cfg: Cfg, user: Ow
             db.add(Setting(key="phones.roles", value=roles, is_secret=False))
         else:
             role_row.value = roles
+        db.add(
+            Setting(
+                key=receipt_key,
+                value={"owner": user.id, "instance_id": inst.id, "expires": time.time() + MAX_AGE},
+                is_secret=False,
+            )
+        )
         await db.delete(row)
         await db.commit()  # phone and ownership transfer are committed together
         return await instance_out(db, inst, cfg)
 
 
-async def cleanup_loop(factory: async_sessionmaker[AsyncSession]) -> None:
+async def cleanup_once(factory: async_sessionmaker[AsyncSession]) -> None:
+    async with _pairing_lock(), factory() as db:
+        cfg = get_settings()
+        completed = (
+            await db.scalars(select(Setting).where(Setting.key.startswith(COMPLETED_PREFIX)))
+        ).all()
+        for receipt in completed:
+            if receipt.value.get("expires", 0) <= time.time():
+                await db.execute(delete(Setting).where(Setting.key == receipt.key))
+        await db.commit()
+        keys = list(await db.scalars(select(Setting.key).where(Setting.key.startswith(PREFIX))))
+        for key in keys:
+            row = await db.get(Setting, key)
+            if row is None:
+                continue
+            data = _decode(row, cfg)
+            if data["expires"] <= time.time() or time.time() - data["created"] >= MAX_AGE:
+                await _remove(db, row, data, cfg)
+
+
+async def cleanup_loop(
+    factory: async_sessionmaker[AsyncSession],
+    *,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> None:
+    from app.schedules import schedule_config, tracked
+
     while True:
-        async with _lock, factory() as db:
-            cfg = get_settings()
-            keys = list(
-                (await db.scalars(select(Setting.key).where(Setting.key.startswith(PREFIX)))).all()
-            )
-            for key in keys:
-                row = await db.get(Setting, key)
-                if row is None:
-                    continue
-                try:
-                    data = _decode(row, cfg)
-                    if data["expires"] <= time.time() or time.time() - data["created"] >= MAX_AGE:
-                        await _remove(db, row, data, cfg)
-                except (OpenWAError, HTTPException, ValueError):
-                    await db.rollback()  # retain the encrypted draft for the next attempt
-        await asyncio.sleep(15)
+        interval = 15
+        try:
+            async with factory() as db:
+                config = await schedule_config(db, "pairing_cleanup")
+            interval = config["interval"]
+            if config["enabled"]:
+                await tracked(factory, "pairing_cleanup", lambda: cleanup_once(factory))
+        except Exception:
+            logger.exception("pairing cleanup pass failed; retrying")
+        await sleep(interval)

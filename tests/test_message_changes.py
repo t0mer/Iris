@@ -151,7 +151,7 @@ async def test_change_still_needs_the_signature_when_required(app_client: Any) -
         assert inst
         inst.signature_required = True
         await s.commit()
-    assert (await post(app_client, token, fx("message_edited"))).status_code == 401
+    assert (await post(app_client, token, fx("message_edited"), sign=False)).status_code == 401
 
 
 async def test_parent_is_told_only_when_the_alert_was_delivered(app_client: Any) -> None:
@@ -283,6 +283,18 @@ async def test_a_dead_follow_up_does_not_fail_the_delivered_alert(app_client: An
     await post(app_client, token, fx("text_received_mixed"))
     aid = await _alert_for(app_client, "sent")
     deps = Deps(app_client.app.state.session_factory, Providers(), get_settings().key_bytes)
+    async with app_client.app.state.session_factory() as db:
+        db.add(
+            Job(
+                id=99,
+                type="notify_change",
+                payload={"alert_id": aid, "kind": "revoked"},
+                status="running",
+                attempts=5,
+                max_attempts=5,
+            )
+        )
+        await db.commit()
     job = ClaimedJob(99, "notify_change", {"alert_id": aid, "kind": "revoked"}, 5, 5)
     assert await queue.fail(deps.session_factory, job, "boom", transient=True) == "dead"
     async with app_client.app.state.session_factory() as s:
@@ -313,7 +325,9 @@ async def test_only_the_later_check_of_a_message_waits(app_client: Any) -> None:
 
     async def mark(job_id: int, status: str) -> None:
         async with app_client.app.state.session_factory() as s:
-            await s.execute(update(JobModel).where(JobModel.id == job_id).values(status=status))
+            await s.execute(
+                update(JobModel).where(JobModel.id == job_id).values(status=status, attempts=1)
+            )
             await s.commit()
 
     await mark(ids[0], "running")
@@ -386,3 +400,34 @@ async def test_a_no_op_change_still_records_that_the_phone_is_alive(app_client: 
     assert (await post(app_client, token, fx("message_edited"))).json() == {"result": "ignored"}
     async with app_client.app.state.session_factory() as s:
         assert (await s.get(Instance, iid)).last_webhook_at is not None  # type: ignore[union-attr]
+
+
+async def test_clear_edit_and_edit_after_revoke(app_client: Any) -> None:
+    _, token = await make_instance(app_client)
+    await post(app_client, token, fx(SENT))
+    raw = json.loads(fx("message_edited"))
+    raw["data"]["body"] = ""
+    assert (await post(app_client, token, json.dumps(raw).encode())).json()["result"] == "edited"
+    assert (await _message(app_client)).text == ""
+    await post(app_client, token, revoke_of(SENT))
+    jobs = len(await _jobs(app_client, "process_message"))
+    assert (await post(app_client, token, fx("message_edited"))).json()["result"] == "ignored"
+    assert (await _message(app_client)).text == ""
+    assert len(await _jobs(app_client, "process_message")) == jobs
+
+
+async def test_running_change_notice_is_deduplicated(app_client: Any) -> None:
+    _, token = await make_instance(app_client)
+    await post(app_client, token, fx(SENT))
+    alert_id = await _alert_for(app_client, "sent")
+    async with app_client.app.state.session_factory() as db:
+        db.add(
+            Job(
+                type="notify_change",
+                status="running",
+                payload={"alert_id": alert_id, "kind": "edited"},
+            )
+        )
+        await db.commit()
+    await post(app_client, token, fx("message_edited"))
+    assert len(await _jobs(app_client, "notify_change")) == 1

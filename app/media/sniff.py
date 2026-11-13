@@ -13,6 +13,8 @@ Sniffed = tuple[str, str, bool]
 
 
 def sniff(head: bytes) -> Sniffed | None:
+    if head.startswith(b"%PDF-"):
+        return "application/pdf", "pdf", True
     if head.startswith(b"\xff\xd8\xff"):
         return "image/jpeg", "jpg", True
     if head.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -51,6 +53,7 @@ def sniff_file(path: Path) -> Sniffed | None:
 
 
 INLINE_TYPES = {
+    "application/pdf",
     "image/jpeg", "image/png", "image/gif", "image/webp", "audio/wav", "audio/ogg", "audio/flac",
     "video/webm", "audio/mp4", "video/quicktime", "video/mp4", "audio/mpeg",
 }  # fmt: skip

@@ -3,7 +3,7 @@
 name: iris
 services:
   iris:
-    image: ${IRIS_IMAGE:-techblog/iris:latest}
+    image: ${IRIS_IMAGE:?Set IRIS_IMAGE to a reviewed release tag or digest}
     container_name: iris
     ports: ["${IRIS_PORT:-8080}:8080"]
     volumes:

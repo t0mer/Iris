@@ -7,8 +7,7 @@ from loguru import logger
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.config import get_settings
-from app.db.models import Alert, Chat, Job, Message
+from app.db.models import Alert, Chat, Job, Message, SkippedGroup
 from app.events import bus
 from app.settings_store import get_setting
 
@@ -29,29 +28,32 @@ async def run_retention(
     now = (now or datetime.now(UTC)).replace(tzinfo=None)  # the database stores naive UTC
     async with factory() as db:
         message_days = int(await get_setting(db, "retention.message_days"))
+        message_hours = int(await get_setting(db, "retention.message_hours"))
+        message_age = (
+            timedelta(hours=message_hours) if message_hours else timedelta(days=message_days)
+        )
         alert_days = int(await get_setting(db, "retention.alert_days"))
 
         alerts = await db.execute(
             delete(Alert).where(Alert.created_at < now - timedelta(days=alert_days))
         )
         message_filters = [
-            Message.sent_at < now - timedelta(days=message_days),
+            Message.sent_at < now - message_age,
             Message.id.not_in(select(Alert.message_id)),
         ]
-        if get_settings().local_safety_mode:
-            message_filters.extend(
-                [
-                    Message.status == "done",
-                    Message.verdict.in_(("safe", "harmful")),
-                    Message.id.not_in(
-                        select(Job.payload["message_id"].as_integer()).where(
-                            Job.type == "process_message",
-                            Job.status.in_(("queued", "running")),
-                            Job.payload["message_id"].as_integer().is_not(None),
-                        )
-                    ),
-                ]
-            )
+        message_filters.extend(
+            [
+                Message.status.in_(("done", "skipped", "failed")),
+                Message.verdict.is_distinct_from("review"),
+                Message.id.not_in(
+                    select(Job.payload["message_id"].as_integer()).where(
+                        Job.type == "process_message",
+                        Job.status.in_(("queued", "running")),
+                        Job.payload["message_id"].as_integer().is_not(None),
+                    )
+                ),
+            ]
+        )
         messages = await db.execute(delete(Message).where(*message_filters))
         jobs = await db.execute(
             delete(Job).where(
@@ -62,7 +64,12 @@ async def run_retention(
                 )
             )
         )
-        chats = await db.execute(delete(Chat).where(Chat.id.not_in(select(Message.chat_id))))
+        chats = await db.execute(
+            delete(Chat).where(
+                Chat.id.not_in(select(Message.chat_id)),
+                Chat.id.not_in(select(SkippedGroup.chat_id)),
+            )
+        )
         await db.commit()
     result = {
         "alerts": int(alerts.rowcount),  # type: ignore[attr-defined]

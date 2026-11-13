@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
-TODAY="$(date +%Y.%-m)"
-LATEST="$(git tag --list "${TODAY}.*" 2>/dev/null | sort -V | tail -1)"
-if [ -z "$LATEST" ]; then echo "${TODAY}.0";
-else PATCH="${LATEST##*.}"; echo "${TODAY}.$((PATCH + 1))"; fi
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+git -C "$ROOT" tag --list | python "$ROOT/scripts/release_version.py" --next

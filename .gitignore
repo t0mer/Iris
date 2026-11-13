@@ -65,3 +65,11 @@ app/static/
 
 .test-*/
 PR_DRAFT.md
+
+# Private local artifacts and temporary test runs
+.local/
+
+web/.local/
+
+# Generated browser PDF assets, copied from the pinned package during build
+/web/public/pdfjs/

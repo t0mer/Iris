@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from 'react'
-import { t } from '../lib/i18n'
+import { t, useLanguage } from '../lib/i18n'
 
 /** Every page opens with the same header: a title, one line saying what the page is for, and its actions. */
 export function PageHeader({
@@ -11,8 +11,11 @@ export function PageHeader({
   description?: string
   actions?: ReactNode
 }) {
+  useLanguage()
+  title = t(title)
+  description = description ? t(description) : undefined
   useEffect(() => {
-    document.title = `${title} · ${t('layout.appName')}`
+    document.title = `${title} · Iris`
   }, [title])
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">

@@ -1,5 +1,7 @@
-import { he } from '../lib/he'
+import { t } from '../lib/i18n'
 import { useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
+import { SkippedGroups } from '../components/SkippedGroups'
 import { Smartphone } from 'lucide-react'
 import { EmptyState } from '../components/EmptyState'
 import { PageHeader } from '../components/PageHeader'
@@ -24,15 +26,25 @@ export function Instances() {
   return (
     <div className="flex max-w-3xl flex-col gap-5">
       <PageHeader
-        title={he('Phones')}
-        description={he(
-          'Manage monitored children. Parent recipients and sender connections are in Settings → Alerts.',
+        title={t('Phones')}
+        description={t(
+          'Manage monitored children. Parent recipients and sender connections are in Settings → Notifications.',
         )}
       />
+      <Link
+        to="/settings?tab=Notifications#parent-alert-recipients"
+        className="text-sm text-primary underline"
+      >
+        {t('Manage parent recipients and sender connections')}
+      </Link>
+      <Link to="/setup" className="text-sm text-primary underline">
+        {t('Return to setup checklist')}
+      </Link>
       {isLoading && <Skeleton className="h-48" />}
-      {isError && <QueryError what={he('your phones')} onRetry={() => void refetch()} />}
-      <h2 className="text-lg font-semibold">{he('Children')}</h2>
+      {isError && <QueryError what="your phones" onRetry={() => void refetch()} />}
+      <h2 className="text-lg font-semibold">{t('Children')}</h2>
       <AddPhone defaultRole="child" />
+      <SkippedGroups />
       <ul className="flex flex-col gap-4">
         {children?.map((phone) => (
           <PhoneCard key={phone.id} i={phone} />
@@ -40,8 +52,8 @@ export function Instances() {
       </ul>
       {children?.length === 0 && (
         <div className="rounded-lg border bg-surface">
-          <EmptyState icon={Smartphone} title={he('No phones yet')}>
-            {he(
+          <EmptyState icon={Smartphone} title={t('No phones yet')}>
+            {t(
               "Add the first child's number to start watching. You will need an OpenWA session for it.",
             )}
           </EmptyState>

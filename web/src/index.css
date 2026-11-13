@@ -2,6 +2,14 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Wrap translated copy and long provider addresses even on narrow phones. */
+html {
+  overflow-wrap: anywhere;
+}
+input[dir='ltr'] {
+  text-align: left;
+}
+
 /*
  * Design tokens. Neutrals are tinted toward violet (never pure grey). Colour only ever
  * carries state together with an icon and a word: coral = harmful, saffron = needs a look,
@@ -61,7 +69,7 @@
 }
 
 @theme inline {
-  --font-sans: 'Rubik Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Rubik Variable', sans-serif;
   --color-background: var(--background);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
@@ -96,7 +104,9 @@
     color: var(--foreground);
     font-family: var(--font-sans);
     font-size: 15px;
-    line-height: 1.5;
+    line-height: 1.6;
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
     font-feature-settings: 'tnum' 0;
     text-rendering: optimizeLegibility;
   }

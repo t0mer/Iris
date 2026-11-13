@@ -1,5 +1,5 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { t } from '../lib/i18n'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from './ui/button'
 
 export function Pagination({
@@ -17,7 +17,7 @@ export function Pagination({
   noun: [string, string]
 }) {
   const pages = Math.max(1, Math.ceil(total / pageSize))
-  const label = total === 1 ? noun[0] : noun[1]
+  const label = t(total === 1 ? noun[0] : noun[1])
   if (total <= pageSize && page <= 1)
     return total > 0 ? (
       <p className="text-sm text-muted-foreground">
@@ -28,13 +28,24 @@ export function Pagination({
   const pastEnd = from > total
   const to = Math.min(page * pageSize, total)
   return (
-    <nav aria-label={t('ui.pagesNav')} className="flex items-center justify-between gap-3">
+    <nav aria-label={t('Pages')} className="flex items-center justify-between gap-3">
       <p className="tabular text-sm text-muted-foreground">
-        {pastEnd ? t('ui.noneOnPage', page, total, label) : t('ui.rangeOf', from, to, total, label)}
+        {pastEnd
+          ? t('Nothing on page {value0}. Total: {value2} {value3}.', {
+              value0: page,
+              value2: total,
+              value3: label,
+            })
+          : t('{value0} to {value1} of {value2} {value3}', {
+              value0: from,
+              value1: to,
+              value2: total,
+              value3: label,
+            })}
       </p>
       <div className="flex gap-2">
         <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>
-          <ChevronLeft className="rtl:rotate-180" /> {t('ui.previous')}
+          <ChevronLeft className="rtl:rotate-180" /> {t('Previous')}
         </Button>
         <Button
           variant="outline"
@@ -42,7 +53,7 @@ export function Pagination({
           disabled={page >= pages}
           onClick={() => onPage(page + 1)}
         >
-          {t('ui.next')} <ChevronRight className="rtl:rotate-180" />
+          {t('Next')} <ChevronRight className="rtl:rotate-180" />
         </Button>
       </div>
     </nav>

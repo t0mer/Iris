@@ -1,58 +1,117 @@
-name: Docker
+name: Release
 
 on:
+  push:
+    tags: ['[0-9]*.[0-9]*.[0-9]*', 'v[0-9]*.[0-9]*.[0-9]*']
   workflow_dispatch:
     inputs:
       version:
-        description: "Version (blank = auto-compute YYYY.M.PATCH)"
+        description: 'Version (blank = YYYY.M.PATCH; main only)'
         required: false
 
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  docker:
-    if: github.ref == 'refs/heads/main' # never publish :latest from a branch
+  version:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write # push the version tag after a successful image push
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # all tags needed to compute the version
-      - name: Resolve version
+          fetch-depth: 0
+      - name: Validate version and source
         id: version
         env:
-          INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          if [ -n "$INPUT_VERSION" ]; then VERSION="$INPUT_VERSION"; else VERSION="$(./scripts/next-version.sh)"; fi
-          [ -n "$VERSION" ] || { echo "::error::could not resolve a version"; exit 1; }
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            TAG="$GITHUB_REF_NAME"
+            git merge-base --is-ancestor HEAD origin/main
+          else
+            [ "$GITHUB_REF" = refs/heads/main ]
+            TAG="${INPUT_VERSION:-$(bash scripts/next-version.sh)}"
+            if git rev-parse --verify "refs/tags/$TAG" >/dev/null 2>&1; then
+              echo '::error::Version tag already exists'; exit 1
+            fi
+          fi
+          python scripts/release_version.py "$TAG" >> "$GITHUB_OUTPUT"
+
+  verify:
+    needs: version
+    uses: ./.github/workflows/ci.yml
+    with:
+      image_version: ${{ needs.version.outputs.version }}
+
+  companion:
+    needs: version
+    uses: ./.github/workflows/native-transcription.yml
+
+  publish:
+    needs: [version, verify, companion]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TAG: ${{ needs.version.outputs.tag }}
+      IMAGE: ${{ vars.DOCKERHUB_IMAGE || 'techblog/iris' }}
+    steps:
+      - uses: actions/checkout@v7
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - uses: docker/build-push-action@v7
+      - name: Resolve image tags
+        id: tags
+        env:
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
+        run: |
+          echo "tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$IMAGE:$VERSION" >> "$GITHUB_OUTPUT"
+          if [ "$PRERELEASE" = false ]; then echo "$IMAGE:latest" >> "$GITHUB_OUTPUT"; fi
+          echo EOF >> "$GITHUB_OUTPUT"
+      - name: Publish verified version for amd64 and arm64
+        id: image
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            VERSION=${{ steps.version.outputs.version }}
+            VERSION=${{ env.VERSION }}
             REVISION=${{ github.sha }}
-          tags: |
-            techblog/iris:latest
-            techblog/iris:${{ steps.version.outputs.version }}
-      # Tag only after the push succeeded, so a failed build never burns a version.
-      - name: Tag published version
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
+          tags: ${{ steps.tags.outputs.tags }}
+          provenance: true
+          sbom: true
+      - name: Tag manual release after image publication
+        if: github.event_name == 'workflow_dispatch'
         run: |
-          set -euo pipefail
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "$VERSION"
-          git push origin "$VERSION"
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git tag "$TAG"
+          git push origin "$TAG"
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          printf 'Image: %s:%s\nDigest: %s\nCommit: %s\n' "$IMAGE" "$VERSION" "$DIGEST" "$GITHUB_SHA" > release-image.txt
+          flags=()
+          if [ "$PRERELEASE" = true ]; then flags+=(--prerelease --latest=false); fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-image.txt --clobber
+          else
+            gh release create "$TAG" release-image.txt --verify-tag --generate-notes --title "Iris $VERSION" "${flags[@]}"
+          fi

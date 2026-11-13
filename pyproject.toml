@@ -14,6 +14,7 @@ dependencies = [
   "aiosqlite",
   "alembic",
   "httpx",
+  "certifi>=2026.10.23",
   "cryptography",
   "argon2-cffi",
   "itsdangerous",
@@ -21,6 +22,7 @@ dependencies = [
   "tzdata>=2026.5",
   "asyncpg>=0.32.0",
   "aiomysql>=0.3.2",
+  "pypdf>=6.21.4,<7",
 ]
 
 [dependency-groups]

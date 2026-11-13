@@ -9,8 +9,8 @@ const KEYS: Record<string, string[]> = {
   alerts: ['alerts', 'alert'],
   review: ['review'],
   jobs: ['jobs'],
-  stats: ['stats'],
-  instances: ['instances'],
+  stats: ['stats', 'alert-readiness', 'schedules', 'audit'],
+  instances: ['instances', 'auth-phones'],
   chats: ['chats'],
 }
 

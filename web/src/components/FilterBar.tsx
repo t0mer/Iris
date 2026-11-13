@@ -1,6 +1,6 @@
+import { t } from '../lib/i18n'
 import { SlidersHorizontal } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
-import { t } from '../lib/i18n'
 import { useIsDesktop } from '../lib/useMediaQuery'
 import { Button } from './ui/button'
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from './ui/dialog'
@@ -33,7 +33,7 @@ export function FilterBar({
             {children}
             {active > 0 && (
               <Button variant="ghost" size="sm" onClick={onClear}>
-                {t('filterBar.clearFilters')}
+                {t('Clear filters')}
               </Button>
             )}
           </>
@@ -41,7 +41,7 @@ export function FilterBar({
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" className="shrink-0">
-                <SlidersHorizontal /> {t('filterBar.filters')}
+                <SlidersHorizontal /> {t('Filters')}
                 {active > 0 && (
                   <span className="tabular rounded-full bg-primary px-1.5 text-xs text-primary-foreground">
                     {active}
@@ -49,18 +49,15 @@ export function FilterBar({
                 )}
               </Button>
             </DialogTrigger>
-            <DialogContent
-              title={t('filterBar.filters')}
-              description={t('filterBar.narrowTheList')}
-            >
+            <DialogContent title={t('Filters')} description={t('Narrow the list.')}>
               <div className="flex flex-col gap-4">{children}</div>
               <div className="flex gap-2">
                 <Button variant="outline" className="flex-1" onClick={onClear}>
-                  {t('filterBar.clearFilters')}
+                  {t('Clear filters')}
                 </Button>
                 <DialogClose asChild>
                   <Button variant="primary" className="flex-1">
-                    {t('filterBar.showResults')}
+                    {t('Show results')}
                   </Button>
                 </DialogClose>
               </div>
@@ -72,7 +69,7 @@ export function FilterBar({
   )
 }
 
-/** A row of single-choice chips (for status, date ranges). Scrolls sideways instead of wrapping. */
+/** Single-choice chips (for status, date ranges), wrapping to keep every option visible. */
 export function Chips<T extends string>({
   label,
   value,
@@ -85,11 +82,7 @@ export function Chips<T extends string>({
   onChange: (v: T) => void
 }) {
   return (
-    <div
-      role="group"
-      aria-label={label}
-      className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-0.5 md:mx-0 md:px-0"
-    >
+    <div role="group" aria-label={t(label)} className="flex max-w-full flex-wrap gap-1.5 pb-0.5">
       {options.map((o) => (
         <button
           key={o.value}
@@ -97,7 +90,7 @@ export function Chips<T extends string>({
           onClick={() => onChange(o.value)}
           className={`min-h-9 shrink-0 rounded-full border px-3.5 text-sm font-medium transition-colors ${value === o.value ? 'border-primary bg-primary-soft text-primary' : 'border-border-strong text-muted-foreground hover:bg-surface-2'}`}
         >
-          {o.label}
+          {t(o.label)}
         </button>
       ))}
     </div>

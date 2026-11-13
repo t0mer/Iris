@@ -1,6 +1,8 @@
 import { cva, type VariantProps } from 'class-variance-authority'
 import type { HTMLAttributes } from 'react'
 import { cn } from '../../lib/cn'
+import { Children } from 'react'
+import { t } from '../../lib/i18n'
 
 const badgeVariants = cva(
   'inline-flex items-center gap-1 rounded-sm px-2 py-0.5 text-xs font-medium [&_svg]:size-3',
@@ -25,5 +27,14 @@ export function Badge({
   tone,
   ...props
 }: HTMLAttributes<HTMLSpanElement> & VariantProps<typeof badgeVariants>) {
-  return <span className={cn(badgeVariants({ tone }), className)} {...props} />
+  return (
+    <span
+      className={cn(badgeVariants({ tone }), className)}
+      {...props}
+      title={props.title ? t(props.title) : undefined}
+      children={Children.map(props.children, (child) =>
+        typeof child === 'string' ? t(child) : child,
+      )}
+    />
+  )
 }

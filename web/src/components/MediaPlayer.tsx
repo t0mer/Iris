@@ -1,17 +1,13 @@
+import { t } from '../lib/i18n'
 import { Download, FileX, Film, Image as ImageIcon, Mic } from 'lucide-react'
 import { useState } from 'react'
 import { fileSize } from '../lib/format'
-import { strings, t } from '../lib/i18n'
 import type { KeptMedia } from '../lib/types'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
 
 const ICON = { image: ImageIcon, audio: Mic, video: Film } as const
-const LABEL = {
-  image: strings.media.photo,
-  audio: strings.media.voiceNote,
-  video: strings.media.video,
-} as const
+const LABEL = { image: 'Photo', audio: 'Voice note', video: 'Video' } as const
 
 /** A small "media kept" marker for lists. It is plain text: rows are links, so no nested link. */
 export function MediaBadge({ media }: { media: KeptMedia }) {
@@ -19,9 +15,12 @@ export function MediaBadge({ media }: { media: KeptMedia }) {
   return (
     <Badge
       tone="info"
-      title={t('media.keptWithSize', LABEL[media.kind], fileSize(media.size_bytes))}
+      title={t('{value0} kept, {value1}', {
+        value0: t(LABEL[media.kind]),
+        value1: fileSize(media.size_bytes),
+      })}
     >
-      <Icon /> {t('media.kept', LABEL[media.kind])}
+      <Icon /> {t(LABEL[media.kind])} {t('kept')}
     </Badge>
   )
 }
@@ -45,21 +44,23 @@ export function MediaPlayer({
     const Icon = ICON[media.kind]
     return (
       <div className="flex min-h-32 w-full max-w-md items-center justify-center gap-2 rounded-lg border bg-surface-2 p-6 text-sm text-muted-foreground">
-        <Icon className="size-5" aria-hidden /> {t('media.hidden', LABEL[media.kind])}
+        <Icon className="size-5" aria-hidden /> {t(LABEL[media.kind])} {t('hidden')}
       </div>
     )
   }
   if (failed)
     return (
       <p role="alert" className="flex items-center gap-2 text-sm text-muted-foreground">
-        <FileX className="size-4" /> {t('media.loadFailed')}
+        <FileX className="size-4" />{' '}
+        {t('This file could not be loaded. It may have been deleted from the storage.')}
       </p>
     )
   if (!media.inline)
     return (
       <Button asChild variant="outline" className="w-fit">
         <a href={src} download>
-          <Download /> {t('media.download', LABEL[media.kind], fileSize(media.size_bytes))}
+          <Download /> {t('Download the')} {t(LABEL[media.kind].toLowerCase())} (
+          {fileSize(media.size_bytes)})
         </a>
       </Button>
     )
@@ -67,7 +68,7 @@ export function MediaPlayer({
     return (
       <img
         src={src}
-        alt={t('media.photoAlt')}
+        alt="The photo kept from this message"
         onError={() => setFailed(true)}
         className={
           className ?? 'max-h-[70dvh] max-w-full rounded-lg border bg-surface-2 object-contain'

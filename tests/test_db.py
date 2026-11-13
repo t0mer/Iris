@@ -10,6 +10,51 @@ from app.db.migrate import upgrade_head
 from app.db.models import Chat, Message
 
 
+async def test_0010_upgrades_actual_legacy_records(tmp_path: Path) -> None:
+    import asyncio
+
+    from alembic import command
+    from alembic.config import Config
+
+    cfg = Config("alembic.ini")
+    url = f"sqlite+aiosqlite:///{tmp_path / 'legacy.db'}"
+    cfg.attributes["url"] = url
+    await asyncio.to_thread(command.upgrade, cfg, "0009")
+    engine = make_engine(url)
+    async with engine.begin() as c:
+        await c.execute(
+            text(
+                "INSERT INTO chats(id,wa_chat_id,is_group,updated_at) VALUES (1,'legacy',0,'2026-01-01')"
+            )
+        )
+        for mid, kind, status, verdict in [
+            (1, "video", "done", "safe"),
+            (2, "sticker", "done", "safe"),
+            (3, "text", "done", "safe"),
+            (4, "other", "skipped", None),
+        ]:
+            await c.execute(
+                text(
+                    "INSERT INTO messages(id,wa_message_id,chat_id,type,from_me,redacted,status,verdict,sent_at,received_at) VALUES (:id,:wa,1,:type,0,0,:status,:verdict,'2026-01-01','2026-01-01')"
+                ),
+                {"id": mid, "wa": str(mid), "type": kind, "status": status, "verdict": verdict},
+            )
+    await engine.dispose()
+    await asyncio.to_thread(command.upgrade, cfg, "head")
+    engine = make_engine(url)
+    async with engine.connect() as c:
+        rows = (
+            await c.execute(
+                text("SELECT id,verdict,review_reason,skip_reason FROM messages ORDER BY id")
+            )
+        ).all()
+    assert rows[0][1:3] == ("review", "Legacy media has no complete content check")
+    assert rows[1][1] == "review"
+    assert rows[2][1] == "safe"
+    assert rows[3][3] == "Legacy skip; original reason was not recorded"
+    await engine.dispose()
+
+
 @pytest.fixture
 async def engine(tmp_path: Path) -> AsyncEngine:
     url = f"sqlite+aiosqlite:///{tmp_path / 't.db'}"

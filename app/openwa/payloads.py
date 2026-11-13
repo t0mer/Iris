@@ -17,8 +17,10 @@ from pydantic import BaseModel
 
 MESSAGE_EVENTS = {"message.received", "message.sent"}
 CHANGE_EVENTS = {"message.edited", "message.revoked"}
-MessageType = Literal["text", "image", "audio", "voice", "video", "sticker", "document", "other"]
-_KNOWN_TYPES = {"text", "image", "audio", "voice", "video", "sticker", "document"}
+MessageType = Literal[
+    "text", "image", "audio", "voice", "video", "sticker", "document", "poll", "other"
+]
+_KNOWN_TYPES = {"text", "image", "audio", "voice", "video", "sticker", "document", "poll"}
 
 
 class PayloadError(ValueError):
@@ -50,6 +52,8 @@ class IncomingMessage(BaseModel):
     sender_name: str | None  # None for from_me; resolved from the instance's kid name
     from_me: bool
     type: MessageType
+    raw_type: str | None = None
+    diagnostics: dict[str, bool | str] | None = None
     text: str | None
     media: MediaRef | None
     quoted_wa_message_id: str | None
@@ -64,6 +68,15 @@ def message_hash(wa_id: str) -> str:
     return parts[2]
 
 
+def _quoted_hash(quoted: Any) -> str | None:
+    if not isinstance(quoted, dict) or not isinstance(quoted.get("id"), str):
+        return None
+    try:
+        return message_hash(quoted["id"])
+    except PayloadError:
+        return None
+
+
 def _media(data: dict[str, Any]) -> MediaRef | None:
     m = data.get("media")
     if not isinstance(m, dict):
@@ -74,6 +87,36 @@ def _media(data: dict[str, Any]) -> MediaRef | None:
         size_bytes=m.get("sizeBytes"),
         inline_base64=m.get("data") if isinstance(m.get("data"), str) else None,
     )
+
+
+def poll_text(data: dict[str, Any]) -> tuple[str | None, bool]:
+    """Preserve the supplied question/options as analyzable text; never infer poll contents."""
+    poll = data.get("poll")
+    body = data.get("body")
+    text = body if isinstance(body, str) and body else None
+    if not isinstance(poll, dict):
+        return text, False
+    question = poll.get("question")
+    if isinstance(question, str) and question:
+        text = question
+    options = poll.get("options")
+    if not isinstance(options, list) or not options:
+        return text, False
+    names = [
+        option
+        if isinstance(option, str)
+        else option.get("name")
+        if isinstance(option, dict)
+        else None
+        for option in options
+    ]
+    if not all(isinstance(name, str) and name.strip() for name in names):
+        raise PayloadError("Invalid poll options")
+    lines = [text] if text else []
+    lines.extend("• " + str(name) for name in names)
+    if isinstance(poll.get("allowMultipleAnswers"), bool):
+        lines.append("Multiple answers: " + ("yes" if poll["allowMultipleAnswers"] else "no"))
+    return "\n".join(lines), True
 
 
 def parse_event(body: dict[str, Any]) -> IncomingMessage | None:
@@ -100,7 +143,23 @@ def parse_event(body: dict[str, Any]) -> IncomingMessage | None:
     sender_id = data.get("author") if is_group and data.get("author") else data.get("from")
     sender_name = None if from_me else (contact.get("pushName") or contact.get("name") or sender_id)
     raw_type = data.get("type")
+    normalized_type = (
+        {"chat": "text", "ptt": "voice", "poll_creation": "poll"}.get(raw_type, raw_type)
+        if isinstance(raw_type, str)
+        else None
+    )
     quoted = data.get("quotedMessage")
+    text, has_poll_options = (
+        poll_text(data) if normalized_type == "poll" else (data.get("body") or None, False)
+    )
+    diagnostics: dict[str, bool | str] = {
+        "event": str(body["event"]),
+        "has_text": bool(text),
+        "has_media": isinstance(data.get("media"), dict),
+        "has_quoted_message": isinstance(quoted, dict),
+    }
+    if has_poll_options:
+        diagnostics["has_poll_options"] = True
 
     return IncomingMessage(
         wa_message_id=message_hash(wa_id),
@@ -111,12 +170,12 @@ def parse_event(body: dict[str, Any]) -> IncomingMessage | None:
         sender_wa_id=sender_id,
         sender_name=sender_name,
         from_me=from_me,
-        type=raw_type if raw_type in _KNOWN_TYPES else "other",
-        text=data.get("body") or None,
+        type=normalized_type if normalized_type in _KNOWN_TYPES else "other",
+        raw_type=raw_type[:255] if isinstance(raw_type, str) else None,
+        diagnostics=diagnostics,
+        text=text,
         media=_media(data),
-        quoted_wa_message_id=message_hash(quoted["id"])
-        if isinstance(quoted, dict) and quoted.get("id")
-        else None,
+        quoted_wa_message_id=_quoted_hash(quoted),
         sent_at=datetime.fromtimestamp(ts, tz=UTC),
     )
 
@@ -139,5 +198,5 @@ def parse_change(body: dict[str, Any]) -> MessageChange | None:
     return MessageChange(
         kind="edited",
         wa_message_id=message_hash(wa_id),
-        new_text=text if isinstance(text, str) and text else None,
+        new_text=text if isinstance(text, str) else None,
     )

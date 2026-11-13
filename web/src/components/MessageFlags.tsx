@@ -1,10 +1,10 @@
+import { t } from '../lib/i18n'
 import { useQuery } from '@tanstack/react-query'
 import { Pencil, ShieldOff, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { api } from '../lib/api'
 import { cn } from '../lib/cn'
 import { dateTime } from '../lib/format'
-import { t } from '../lib/i18n'
 import type { Message, MessageDetail } from '../lib/types'
 import { useReveal } from '../lib/useReveal'
 import { QueryError } from './QueryError'
@@ -24,16 +24,19 @@ export function MessageFlags({ m, history = false }: { m: Flagged; history?: boo
   return (
     <>
       {m.revoked_at && (
-        <Badge tone="danger" title={t('messageFlags.deletedTitle')}>
-          <Trash2 /> {t('messageFlags.deletedForEveryone')}
+        <Badge
+          tone="danger"
+          title={t('The sender deleted this message for everyone. Iris kept it.')}
+        >
+          <Trash2 /> {t('Deleted for everyone')}
         </Badge>
       )}
       {m.edited_at &&
         (history ? (
           <EditHistory m={m} />
         ) : (
-          <Badge title={t('messageFlags.editedTitle')}>
-            <Pencil /> {t('messageFlags.edited')}
+          <Badge title={t('The sender edited this message.')}>
+            <Pencil /> {t('Edited')}{' '}
           </Badge>
         ))}
     </>
@@ -58,20 +61,17 @@ function EditHistory({ m }: { m: Flagged }) {
             'inline-flex min-h-6 items-center gap-1 rounded-sm bg-surface-2 px-2 py-0.5 text-xs font-medium text-muted-foreground',
             'hover:bg-border',
           )}
-          aria-label={t('messageFlags.showHistory')}
+          aria-label={t('Edited, show the edit history')}
         >
-          <Pencil className="size-3" /> {t('messageFlags.edited')}
+          <Pencil className="size-3" /> {t('Edited')}{' '}
         </button>
       </DialogTrigger>
       <DialogContent
-        title={t('messageFlags.editHistory')}
-        description={t('messageFlags.editHistoryDesc')}
+        title={t('Edit history')}
+        description={t('Every wording of this message Iris saw, newest first.')}
       >
         {detail.isError && (
-          <QueryError
-            what={t('messageFlags.theEditHistory')}
-            onRetry={() => void detail.refetch()}
-          />
+          <QueryError what="the edit history" onRetry={() => void detail.refetch()} />
         )}
         {!d && !detail.isError && <Skeleton className="h-24" />}
         {d && <HistoryBody d={d} earlier={earlier} />}
@@ -88,9 +88,10 @@ function HistoryBody({ d, earlier }: { d: MessageDetail; earlier: MessageDetail[
       {!d.redacted && <RevealButton revealed={revealed} onToggle={toggle} className="w-fit" />}
       <ol className="flex flex-col gap-3">
         <li className="flex flex-col gap-1 rounded-md border bg-surface-2/50 p-3">
-          <span className="text-sm font-medium">{t('messageFlags.current')}</span>
+          <span className="text-sm font-medium">{t('Current')}</span>
           <span className="text-xs text-muted-foreground">
-            {t('messageFlags.editedAt', d.edited_at ? dateTime(d.edited_at) : '')}
+            {' '}
+            {t('Edited')} {d.edited_at ? dateTime(d.edited_at) : ''}
           </span>
           <Wording text={d.text} redacted={d.redacted} revealed={revealed} />
         </li>
@@ -99,12 +100,11 @@ function HistoryBody({ d, earlier }: { d: MessageDetail; earlier: MessageDetail[
           return (
             <li key={r.replaced_at + i} className="flex flex-col gap-1 rounded-md border p-3">
               <span className="text-sm font-medium">
-                {original ? t('messageFlags.original') : t('messageFlags.earlierVersion')}
+                {original ? t('Original') : t('Earlier version')}
               </span>
               <span className="text-xs text-muted-foreground">
-                {original
-                  ? t('messageFlags.sentReplaced', dateTime(d.sent_at), dateTime(r.replaced_at))
-                  : t('messageFlags.replacedAt', dateTime(r.replaced_at))}
+                {original ? t('Sent {value0}, ', { value0: dateTime(d.sent_at) }) : ''}
+                {t('replaced')} {dateTime(r.replaced_at)}
               </span>
               <Wording text={r.text} revealed={revealed} />
             </li>
@@ -112,7 +112,9 @@ function HistoryBody({ d, earlier }: { d: MessageDetail; earlier: MessageDetail[
         })}
         {earlier.length === 0 && (
           <li className="text-sm text-muted-foreground">
-            {d.redacted ? t('messageFlags.withheldNoEarlier') : t('messageFlags.noEarlier')}
+            {d.redacted
+              ? t('The content is withheld, so no earlier wording is kept.')
+              : t('No earlier wording was kept for this message.')}
           </li>
         )}
       </ol>
@@ -132,7 +134,7 @@ function Wording({
   if (redacted)
     return (
       <span className="inline-flex items-center gap-1.5 italic text-muted-foreground">
-        <ShieldOff className="size-4" /> {t('messageFlags.contentWithheld')}
+        <ShieldOff className="size-4" /> {t('Content withheld.')}
       </span>
     )
   return (

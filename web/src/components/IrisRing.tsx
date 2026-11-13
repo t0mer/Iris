@@ -1,5 +1,5 @@
+import { t } from '../lib/i18n'
 import { cn } from '../lib/cn'
-import { strings } from '../lib/i18n'
 
 const R = 52
 const C = 2 * Math.PI * R
@@ -44,7 +44,11 @@ export function IrisRing({ alerts, review, className }: Props) {
     <svg
       viewBox="0 0 120 120"
       role="img"
-      aria-label={total ? strings.irisRing.needsAttention(total) : strings.irisRing.nothingNeeds}
+      aria-label={
+        total
+          ? t('{value0} need your attention', { value0: total })
+          : t('Nothing needs your attention')
+      }
       className={cn('size-36 shrink-0 sm:size-44', className)}
     >
       <circle cx="60" cy="60" r={R} fill="none" stroke="var(--surface-2)" strokeWidth="9" />

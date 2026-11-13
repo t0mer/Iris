@@ -1,8 +1,9 @@
-import { dir } from '../../lib/language'
 import * as TabsPrimitive from '@radix-ui/react-tabs'
 import { cn } from '../../lib/cn'
+import { useLanguage } from '../../lib/i18n'
 
 export function Tabs(props: TabsPrimitive.TabsProps) {
+  const { dir } = useLanguage()
   return <TabsPrimitive.Root dir={dir} {...props} />
 }
 
