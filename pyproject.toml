@@ -14,6 +14,7 @@ dependencies = [
   "aiosqlite",
   "alembic",
   "httpx",
+  "certifi>=2026.10.23",
   "cryptography",
   "argon2-cffi",
   "itsdangerous",

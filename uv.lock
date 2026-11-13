@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = "==3.12.*"
 
 [[package]]
@@ -377,6 +377,7 @@ dependencies = [
     { name = "alembic" },
     { name = "argon2-cffi" },
     { name = "asyncpg" },
+    { name = "certifi" },
     { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
@@ -405,6 +406,7 @@ requires-dist = [
     { name = "alembic" },
     { name = "argon2-cffi" },
     { name = "asyncpg", specifier = ">=0.32.0" },
+    { name = "certifi", specifier = ">=2026.10.23" },
     { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
